@@ -1,0 +1,64 @@
+gemini랑 프로젝트 기획하면서 수정이 필요한 부분(기획적,코드적 모두 포함)
+
+- merge된 일괄양식: 현재 병합된 일괄양식에서 불필요한 부분 존재 
+convert_to_bulk_upload(df_original, df_invoice, mapping_rules) 함수 수정 필요
+
+
+- 기획중 예외 사항..
+일괄양식 만들 때, 각 온라인 스토어에서 주문번호와 묶음주문번호 복붙하는 건 줄 알았는데, 
+각 온라인 스토어양식에는 묶음 주문번호가 안나와있다..
+
+일단 이카운트 + 내보내기 양식을 일괄양식으로 변환하는 것으로만 하고 각 온라인 스토어 주문 양식 + 내보내기 양식을
+일괄 양식으로 변환하는건 나중에 생각해봐야겠다.
+
+
+- def load_headers(uploaded_file):
+    """ (변경 없음) 엑셀/CSV 파일을 읽어 헤더(컬럼명 리스트)만 반환 """
+    if uploaded_file is None: return None
+    try:
+        if uploaded_file.name.lower().endswith('.csv'):
+            df = pd.read_csv(uploaded_file, encoding='cp949', nrows=0) #nrows=0의 의미는 헤더만 읽기
+        else:
+            df = pd.read_excel(uploaded_file, nrows=0)
+        return list(df.columns) # 예시: # → ['주문번호', '상품명', '수량']
+
+    except Exception as e:
+        st.error(f"파일 헤더를 읽는 중 오류 발생: {e}")
+        return None
+
+에서 첫 줄만 읽으라고 되어 있는데, 꼭 컬럼 명들이 첫 번째가 아닐 수도 있음..
+이거에 대해 논의해보자.
+
+-선택안함 이슈: 현재 아예 문자열로  "(선택 안 함)" 이라고 되어 있는데.. 실제 다운 받았을 때 " "(선택 안 함)"이라고 
+되어있지 않고 그냥 빈칸으로 되어 있는데.. 이 부분에 대한 논의가 필요함
+
+def convert_to_rosen(df_data, mapping_rules):
+    """ (요구사항 1-3) 원본 -> 로젠 변환 """
+    out = pd.DataFrame()
+    
+    for rosen_col, source_col in mapping_rules.get("simple_map", {}).items():
+        if source_col != "(선택 안 함)" and source_col in df_data.columns:
+            out[rosen_col] = df_data[source_col]
+        elif source_col == "(선택 안 함)":
+            out[rosen_col] = ""
+    
+    split_col = mapping_rules.get("split_col")
+    if split_col and split_col in df_data.columns:
+        st.info(f"'{split_col}' 기준으로 파일 분리를 시도합니다.")
+        df_naver = out[df_data[split_col].str.contains("네이버", na=False)]
+        df_kakao = out[df_data[split_col].str.contains("카카오", na=False)]
+        df_coupang = out[df_data[split_col].str.contains("쿠팡", na=False)]
+        return {"naver": df_naver, "kakao": df_kakao, "coupang": df_coupang}
+    
+    return {"single_file": out}
+
+-또한, convert_to_rosen 에서는 로직이, 두 파일에 주문 목록들이.. 모두 같은 레코드(행)이 같은 정렬로
+속성만 달리 한다는 전제 하에 짠 것 같은데 그럼 안정성이 떨어질 것 같음.
+아예 몇개의 식별자로 한 줄 한줄 매칭되는 것들을 찾는 것이 좋을 듯?
+
+
+def convert_to_bulk_upload(df_original, df_invoice, mapping_rules):
+
+꼭 병합키를 사용하는 이유는? 
+그리고 _x, _y를 사용해야 하는 이유는??
+사실 로직이 너무 복잡해서 추후에 문제가 생기면 해결해야 할 것 같아.
