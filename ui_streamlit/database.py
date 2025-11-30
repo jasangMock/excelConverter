@@ -1,12 +1,17 @@
 import sqlite3
 import json
 import streamlit as st
-
+import os
 DB_NAME = "excel_converter.db"
+
+# 이 파일(database.py)이 있는 위치를 기준으로 DB 경로를 고정
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, DB_NAME)
+
 
 def get_db_conn():
     """ 데이터베이스 커넥션을 반환합니다. """
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     #DB_NAME 이라는 파일이 없으면 자동으로 생성됨
     conn.row_factory = sqlite3.Row
     # 튜플에 접근할 때 컬럼명으로 접근 가능하게 설정

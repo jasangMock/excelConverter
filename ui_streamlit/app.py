@@ -3,9 +3,10 @@ import os
 import pandas as pd             # 엑셀 데이터를 다루는 핵심 라이브러리
 import streamlit as st          # 화면에 에러나 경고를 띄우기 위해 필요
 import io                       # 파일을 디스크에 저장하지 않고 '메모리'에서만 다루기 위한 도구
-import msoffcrypto              # 엑셀 암호를 해제해주는 열쇠 도구
-from xlrd import XLRDError      # "암호 걸려있음"이라는 특정 에러를 잡아내기 위해 가져옴
-
+from xlrd import XLRDError
+from utils import load_headers  # utils.py에서 load_headers 함수 가져오기
+from ui_components import render_template_manager # UI 컴포넌트 함수 가져오기
+import constants as C  # 상수 파일 가져오기
 
 # --- 0. DB 초기화 및 설정 로드 ---
 database.init_db()
@@ -29,61 +30,6 @@ def load_config_to_session():
 #    load_config_to_session()
 load_config_to_session()
 # --- 유틸리티 함수 ---
-
-def load_headers(uploaded_file, header_row_idx=0, password=None):
-    if uploaded_file is None: return None
-    
-    try:
-        uploaded_file.seek(0) # 파일 포인터 초기화
-        
-        # 1. CSV 파일 처리
-        if uploaded_file.name.lower().endswith('.csv'):
-            df = pd.read_csv(uploaded_file, encoding='cp949', header=header_row_idx, nrows=0)
-            
-        # 2. 엑셀 파일 처리
-        else:
-            target_file = uploaded_file
-            
-            # (A) 암호 해제 시도
-            if password:
-                try:
-                    decrypted_workbook = io.BytesIO()
-                    office_file = msoffcrypto.OfficeFile(uploaded_file)
-                    office_file.load_key(password=password)
-                    office_file.decrypt(decrypted_workbook)
-                    
-                    decrypted_workbook.seek(0)
-                    target_file = decrypted_workbook
-                except Exception as e:
-                    st.error("🔒 비밀번호가 틀렸습니다.")
-                    return None
-
-            # (B) 엑셀 읽기
-            try:
-                df = pd.read_excel(target_file, header=header_row_idx, nrows=0)
-            except XLRDError as e:
-                if "encrypted" in str(e):
-                    st.warning("🔒 암호화된 파일입니다. 비밀번호를 입력해주세요.")
-                    return None
-                else: raise e
-            except Exception as e:
-                if "encrypted" in str(e) or "password" in str(e).lower():
-                    st.warning("🔒 암호화된 파일입니다. 비밀번호를 입력해주세요.")
-                    return None
-                raise e
-
-        # --- [추가된 로직] "Unnamed: ..." 또는 빈 값 걸러내기 ---
-        raw_columns = list(df.columns)
-        clean_columns = [
-            col for col in raw_columns 
-            if str(col).strip() != "" and not str(col).startswith("Unnamed:")
-        ]
-
-        return clean_columns
-
-    except Exception as e:
-        st.error(f"파일을 읽는 중 오류 발생: {e}")
-        return None
 
     
 def load_data(uploaded_file, header_row_idx=0):
@@ -131,9 +77,9 @@ def convert_to_rosen(df_data, mapping_rules):
         else:
             out[rosen_col] = "" # 빈 값 처리
 
-    # 2. 요청하신 고정값 강제 적용
-    out['택배운임'] = 2900
-    out['운임구분'] = "신용"
+    # 2. 상수 값을 사용하여 고정값 적용
+    out['택배운임'] = C.ROSEN_SHIPPING_COST
+    out['운임구분'] = C.ROSEN_COST_TYPE
     
     # 3. 특수 매핑 로직 (수취인 연락처 -> 전화번호 & 핸드폰번호 둘 다 넣기)
     # (매핑 규칙에서 '수하인전화번호'와 '수하인핸드폰번호'가 각각 매핑되어 있다면 위 1번에서 처리됨)
@@ -266,10 +212,10 @@ def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
 # --- Streamlit UI 구성 ---
 # ######################################################################
 
-st.set_page_config(page_title="excelConverter Final", layout="wide")
-st.title("🚚 excelConverter (Final)")
+st.set_page_config(page_title=C.PAGE_TITLE, layout="wide")
+st.title(C.MAIN_TITLE)
 
-page_run, page_setup = st.tabs(["실행 (매일 작업)", "설정 (최초 1회)"])
+page_run, page_setup = st.tabs([C.TAB_RUN, C.TAB_SETUP])
 
 # ########## 1. 실행 페이지 ##########
 with page_run:
@@ -282,7 +228,7 @@ with page_run:
         st.subheader("이카운트 ERP ➔ 로젠 송장 양식")
         
         # 설정 확인
-        rules = st.session_state.mappings.get("ecount_to_rosen")
+        rules = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN)
         if not rules:
             st.error("⚠️ '설정' 탭에서 [이카운트 -> 로젠] 매핑을 먼저 해주세요.")
         else:
@@ -315,7 +261,7 @@ with page_run:
         st.subheader("이카운트 + 내보내기(송장) ➔ 일괄 양식")
         st.info("ℹ️ 수취인+연락처+품목+메시지가 모두 일치하는 주문을 자동으로 연결합니다.")
         
-        rules_bulk = st.session_state.mappings.get("bulk_ecount")
+        rules_bulk = st.session_state.mappings.get(C.MAP_BULK_ECOUNT)
         if not rules_bulk:
             st.error("⚠️ '설정' 탭에서 [일괄 양식 매핑]을 먼저 해주세요.")
         else:
@@ -347,88 +293,18 @@ with page_run:
 # ########## 2. 설정 페이지 ##########
 with page_setup:
     st.warning("⚠️ 설정은 DB에 자동 저장됩니다.")
-    t1, t2, t3 = st.tabs(["1. 양식 등록", "2. 로젠 변환 매핑", "3. 일괄 양식 매칭 설정"])
+    t1, t2, t3 = st.tabs([C.SETUP_TAB1_TITLE, C.SETUP_TAB2_TITLE, C.SETUP_TAB3_TITLE])
 
     # --- [설정] 1. 양식 등록 ---
-    # with t1:
-    #     st.write("각 엑셀 파일의 헤더(제목) 정보를 등록합니다.")
-    #     template_names = ["ecount", "rosen", "rosen_invoice", "ecount_bulk"]
-    #     labels = {
-    #         "ecount": "이카운트 주문서",
-    #         "rosen": "로젠 송장 양식 (변환용)",
-    #         "rosen_invoice": "로젠 내보내기 양식 (송장번호 포함)",
-    #         "ecount_bulk": "이카운트 일괄 양식 (최종 결과물)"
-    #     }
-        
-    #     selected_tmp = st.selectbox("설정할 양식 선택", template_names, format_func=lambda x: labels[x])
-    #     #사용자가 클릭 시, template_names중에 하나의 값이  foramt_func의 x로 들어가서 labels[x]의 값으로 보여짐.
-    #     #seleccted_tmp의 예시값: "ecount"
-
-    #     # 헤더 위치 지정 추가
-    #     row_idx_setup = st.number_input(f"업로드할 '{labels[selected_tmp]}' 샘플 파일의 제목 줄 번호", min_value=1, value=1) - 1
-    #     up_tmp = st.file_uploader(f"{labels[selected_tmp]} 샘플 파일 업로드", key=f"setup_{selected_tmp}")
-    #     #up_tmp: 사용자가 업로드한 파일 객체
-
-    #     if up_tmp: # 사용자가 파일을 업로드했을 때
-    #         headers = load_headers(up_tmp, header_row_idx=row_idx_setup)
-    #         print(headers)
-    #         if headers:
-    #             st.write("감지된 헤더:", headers)
-    #             if st.button("✅ 이 양식 저장", key=f"save_{selected_tmp}"):
-    #                 # 단순 리스트로 저장 (필수 여부 로직은 복잡하니 일단 제외하고 헤더 리스트만 저장)
-    #                 database.save_template(selected_tmp, headers) 
-    #                 st.session_state.templates[selected_tmp] = headers
-    #                 st.success("저장되었습니다.")
     with t1:
-            st.write("각 엑셀 파일의 헤더(제목) 정보를 등록합니다.")
-            template_names = ["ecount", "rosen", "rosen_invoice", "ecount_bulk"]
-            labels = {
-                "ecount": "이카운트 주문서",
-                "rosen": "로젠 송장 양식 (변환용)",
-                "rosen_invoice": "로젠 내보내기 양식 (송장번호 포함)",
-                "ecount_bulk": "이카운트 일괄 양식 (최종 결과물)"
-            }
-            
-            selected_tmp = st.selectbox("설정할 양식 선택", template_names, format_func=lambda x: labels[x])
-    
-            # --- [핵심 변경 포인트] ---
-            # 1. 현재 선택한 양식의 데이터가 이미 있는지 확인
-            # (DB에서 불러온 값이 st.session_state.templates에 들어있다고 가정)
-            saved_headers = st.session_state.templates.get(selected_tmp)
-    
-            # A. 이미 저장된 정보가 있다면 -> 결과만 보여줌 (업로드 창 숨김)
-            if saved_headers:
-                st.info(f"✅ '{labels[selected_tmp]}' 양식은 이미 설정되어 있습니다.")
-                st.write("등록된 헤더 정보:", saved_headers)
-                
-                # 수정하고 싶을 때를 대비한 버튼
-                if st.button("🗑️ 기존 설정 삭제하고 다시 업로드하기", key=f"reset_{selected_tmp}"):
-                    database.delete_template(selected_tmp) # DB에서 해당 템플릿 삭제
-                    del st.session_state.templates[selected_tmp] # 세션에서 삭제
-                    st.rerun() # 화면 즉시 새로고침 -> 아래 'else'로 넘어감
-    
-            # B. 저장된 정보가 없다면 -> 업로드 창 보여줌 (기존 로직)
-            else:
-                st.warning(f"아직 '{labels[selected_tmp]}' 설정이 없습니다. 파일을 업로드해주세요.")
-                
-                row_idx_setup = st.number_input(f"업로드할 '{labels[selected_tmp]}' 샘플 파일의 제목 줄 번호", min_value=1, value=1) - 1
-                up_tmp = st.file_uploader(f"{labels[selected_tmp]} 샘플 파일 업로드", key=f"setup_{selected_tmp}")
-    
-                if up_tmp:
-                    # 1. 비밀번호 입력 받기 (엑셀일 때만 필요하겠지만, 일단 UI에 둠)
-                    file_pwd = st.text_input("파일 비밀번호 (암호가 있는 경우)", type="password", key=f"pwd_{selected_tmp}")
-    
-                     # 2. 함수 호출 시 password 전달
-                     # (비밀번호가 없으면 빈 문자열이나 None이 들어갈 텐데, 파이썬에서 if password: 로 체크하므로 괜찮음)
-                    headers = load_headers(up_tmp, header_row_idx=row_idx_setup, password=file_pwd)
-                    
-                    if headers:
-                        st.write("감지된 헤더:", headers)
-                        if st.button("✅ 이 양식 저장", key=f"save_{selected_tmp}"):
-                            database.save_template(selected_tmp, headers) 
-                            st.session_state.templates[selected_tmp] = headers
-                            st.success("저장되었습니다!")
-                            st.rerun() # 저장 직후 화면을 갱신해서 바로 'A' 상태로 전환
+        st.write("각 엑셀 파일의 헤더(제목) 정보를 등록합니다.")
+        
+        selected_tmp = st.selectbox("설정할 양식 선택", C.TEMPLATE_KEYS_IN_ORDER, format_func=lambda x: C.TEMPLATE_LABELS[x])
+
+        # 선택된 양식에 해당하는 UI 컴포넌트를 렌더링합니다.
+        if selected_tmp:
+            render_template_manager(selected_tmp, C.TEMPLATE_LABELS[selected_tmp])
+
         # --- [설정] 2. 로젠 변환 매핑 ---
     with t2:
         st.subheader("이카운트 ➔ 로젠 매핑")
@@ -442,7 +318,7 @@ with page_setup:
             with st.form("map_rosen_form"):
                 # 단순 매핑
                 st.write("##### 1:1 컬럼 연결")
-                current_map = st.session_state.mappings.get("ecount_to_rosen", {}).get("simple_map", {})
+                current_map = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("simple_map", {})
                 new_simple_map = {}
                 
                 # 타겟(로젠) 컬럼을 기준으로 소스(이카운트)를 선택
@@ -462,14 +338,14 @@ with page_setup:
                 
                 st.write("##### 파일 분리 기준")
                 # 수집처 컬럼 선택
-                prev_split = st.session_state.mappings.get("ecount_to_rosen", {}).get("split_col", "(선택 안 함)")
+                prev_split = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("split_col", "(선택 안 함)")
                 split_idx = (["(선택 안 함)"] + src_cols).index(prev_split) if prev_split in src_cols else 0
                 split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", ["(선택 안 함)"] + src_cols, index=split_idx)
 
                 if st.form_submit_button("매핑 저장"):
                     full_rule = {"simple_map": new_simple_map, "split_col": split_col}
-                    database.save_mapping("ecount_to_rosen", full_rule)
-                    st.session_state.mappings["ecount_to_rosen"] = full_rule
+                    database.save_mapping(C.MAP_ECOUNT_TO_ROSEN, full_rule)
+                    st.session_state.mappings[C.MAP_ECOUNT_TO_ROSEN] = full_rule
                     st.success("저장 완료")
 
     # --- [설정] 3. 일괄 양식 매칭 설정 ---
@@ -484,7 +360,7 @@ with page_setup:
             st.error("이카운트와 로젠 내보내기 양식을 먼저 등록해주세요.")
         else:
             with st.form("bulk_match_form"):
-                curr_match = st.session_state.mappings.get("bulk_ecount", {}).get("match_columns", {})
+                curr_match = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {}).get("match_columns", {})
                 
                 c1, c2 = st.columns(2)
                 with c1: st.write("##### 이카운트 (원본)")
@@ -508,7 +384,7 @@ with page_setup:
 
                 st.write("##### 쇼핑몰 코드 변환 규칙")
                 st.write("예: 네이버스마트스토어=00001 (한 줄에 하나씩)")
-                prev_rules = st.session_state.mappings.get("bulk_ecount", {}).get("transform", {}).get("rules", {})
+                prev_rules = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {}).get("transform", {}).get("rules", {})
                 rules_str = "\n".join([f"{k}={v}" for k,v in prev_rules.items()])
                 txt_rules = st.text_area("변환 규칙 입력", value=rules_str if rules_str else "네이버스마트스토어=00001\n카카오 선물하기=00003\n쿠팡=00004")
 
@@ -530,6 +406,6 @@ with page_setup:
                             "rules": rule_dict
                         }
                     }
-                    database.save_mapping("bulk_ecount", full_cfg)
-                    st.session_state.mappings["bulk_ecount"] = full_cfg
+                    database.save_mapping(C.MAP_BULK_ECOUNT, full_cfg)
+                    st.session_state.mappings[C.MAP_BULK_ECOUNT] = full_cfg
                     st.success("설정 저장 완료")
