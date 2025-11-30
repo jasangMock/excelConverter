@@ -50,7 +50,10 @@ def save_template(name, columns_list):
     #templates라는 테이블에 name과 columns_json이라는 컬럼에 매개변수로 받은 
     # name과 columns_list를 json형태로 변환한 것을 저장
     """ 양식(헤더 리스트)을 DB에 저장/덮어쓰기 합니다. """
-    columns_json = json.dumps(columns_list)
+
+    print(f"DB에 저장할 템플릿 이름: {name}")
+    print(f"DB에 저장할 템플릿 컬럼: {columns_list}")
+    columns_json = json.dumps(columns_list,ensure_ascii=False)
     conn = get_db_conn()
     with conn:
         conn.execute(
@@ -74,7 +77,7 @@ def save_mapping(name, rules_dict):
     conn.close()
     st.toast(f"✅ '{name}' 매핑이 DB에 저장되었습니다.")
 
-@st.cache_data(ttl=600) # 10분마다 DB에서 설정을 다시 로드
+#@st.cache_data(ttl=600) # 10분마다 DB에서 설정을 다시 로드
 def load_all_config_from_db():
     """ DB에서 모든 템플릿과 매핑을 읽어 딕셔너리로 반환합니다. (캐시 사용) """
     #딕셔너리로 반환하는 이유: 
@@ -113,3 +116,17 @@ def load_all_config_from_db():
 #     '쿠팡→로젠': {...}
 # }
     return templates, mappings
+
+def delete_template(name):
+    """ 특정 이름의 양식(템플릿)을 DB에서 삭제합니다. """
+    conn = get_db_conn()
+    try:
+        with conn:
+            cursor = conn.execute("DELETE FROM templates WHERE name = ?", (name,))
+        if cursor.rowcount > 0:
+            st.toast(f"🗑️ '{name}' 양식이 DB에서 삭제되었습니다.")
+            print(f"DB에서 '{name}' 템플릿을 삭제했습니다.")
+        else:
+            print(f"DB에서 '{name}' 템플릿을 찾지 못해 삭제하지 못했습니다.")
+    finally:
+        conn.close()

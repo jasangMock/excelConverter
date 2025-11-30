@@ -1,149 +1,225 @@
 import io
 import pandas as pd
 import streamlit as st
-import database # database.py 임포트
+import database 
+import os
 
-# --- 0. (중요) DB 초기화 및 설정 로드 ---
-#→ 역할: 프로그램 시작할 때 필요한 라이브러리 불러오고, 데이터베이스 준비
+# --- 0. DB 초기화 및 설정 로드 ---
 database.init_db()
+
+
+
+# 현재 파이썬이 실행되는 위치(작업 디렉토리) 출력
+print("현재 파이썬 작업 경로:", os.getcwd())
+# 파이썬이 바라보는 DB 파일의 절대 경로 출력
+print("파이썬이 여는 DB 경로:", os.path.abspath('Excel_converter.db'))
+
 
 def load_config_to_session():
     templates, mappings = database.load_all_config_from_db()
+    print("Loaded templates from DB:", templates)
+    print("Loaded mappings from DB:", mappings)
     st.session_state['templates'] = templates
     st.session_state['mappings'] = mappings
-    print("Config loaded from DB to session state.")
 
-if 'templates' not in st.session_state:
-    load_config_to_session()
+#if 'templates' not in st.session_state:
+#    load_config_to_session()
+load_config_to_session()
+# --- 유틸리티 함수 ---
 
-
-
-# --- 유틸리티 함수 (load_headers 제외하고 이전과 동일) ---
-def load_headers(uploaded_file):
-    """ (변경 없음) 엑셀/CSV 파일을 읽어 헤더(컬럼명 리스트)만 반환 """
+def load_headers(uploaded_file, header_row_idx=0):
+    """ 
+    (수정됨) 엑셀/CSV 파일을 읽어 헤더를 반환.
+    header_row_idx: 몇 번째 줄을 헤더로 볼 것인지 (0부터 시작)
+    """
     if uploaded_file is None: return None
     try:
         if uploaded_file.name.lower().endswith('.csv'):
-            df = pd.read_csv(uploaded_file, encoding='cp949', nrows=0) #nrows=0의 의미는 헤더만 읽기
+            print("CSV 파일 감지")
+            # CSV는 보통 첫 줄이 헤더지만, 혹시 모르니 skip_rows 적용
+            # 사용자가 업로드한 파일이 csv일 경우, header_row_idx를 반영하여 헤더를 읽음, encoding은 cp949로 시도
+            df = pd.read_csv(uploaded_file, encoding='cp949', header=header_row_idx, nrows=0)
         else:
-            df = pd.read_excel(uploaded_file, nrows=0)
-        return list(df.columns) # 예시: # → ['주문번호', '상품명', '수량']
-
+            df = pd.read_excel(uploaded_file, header=header_row_idx, nrows=0)
+            print("Excel 파일 감지")
+        return list(df.columns)
     except Exception as e:
         st.error(f"파일 헤더를 읽는 중 오류 발생: {e}")
         return None
 
-def load_data(uploaded_file):
-    """ (변경 없음) 엑셀/CSV 파일을 읽어 전체 데이터(DataFrame) 반환 """
-    # ... (이전 코드와 동일)
+def load_data(uploaded_file, header_row_idx=0):
+    """ (수정됨) header_row_idx 반영하여 데이터 읽기 """
     if uploaded_file is None: return None
     try:
         if uploaded_file.name.lower().endswith('.csv'):
             try:
-                return pd.read_csv(uploaded_file, encoding='cp949')
+                return pd.read_csv(uploaded_file, encoding='cp949', header=header_row_idx)
             except Exception:
-                uploaded_file.seek(0) # 파일 포인터를 처음으로 되돌림. 후에 read_csv 재시도 위해
-                return pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                uploaded_file.seek(0)
+                return pd.read_csv(uploaded_file, encoding='utf-8-sig', header=header_row_idx)
         else:
-            return pd.read_excel(uploaded_file)
+            return pd.read_excel(uploaded_file, header=header_row_idx)
     except Exception as e:
         st.error(f"파일 데이터를 읽는 중 오류가 발생했습니다: {e}")
         return None
 
 def to_excel_bytes(df):
-    """ (변경 없음) DataFrame -> 엑셀 다운로드용 Bytes """
-    # ... (이전 코드와 동일)
     bio = io.BytesIO()
     with pd.ExcelWriter(bio, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
-    bio.seek(0) # 버퍼의 시작 위치로 이동, 왜냐하면 다운로드 시 처음부터 읽어야 하니까, 그 의미를 쉽게 풀면, 파일 포인터를 처음으로 되돌리는 것과 같음
+    bio.seek(0)
     return bio.getvalue()
 
-# --- 변환 로직 함수 (수정됨) ---
+def clean_text(text):
+    """매칭을 위해 공백 제거 및 문자열 변환"""
+    return str(text).replace(" ", "").strip()
+
+# --- 1. 로젠 변환 로직 (요구사항 반영) ---
+
 def convert_to_rosen(df_data, mapping_rules):
-     #로직 수정해야 할 듯.
-    #현재 로직은...줄 그대로 복사해왔음. 즉, 튜플 하나하나 일치하는지 확인하지 않아
-    #내가 원하는 로직은... 정리해서 프롬프트 넣기
-    #안정성 고려, 다만 빠른 변환을 위해.. 둘 다 사용. Dynamic Programming 느낌. 둘 다 메모리에 저장
-    """ (변경 없음) (요구사항 1-3) 원본 -> 로젠 변환 """
-    # ... (이전 코드와 동일)
+    """ 
+    이카운트 -> 로젠 변환 
+    (1:1 변환이므로 별도 식별자 매칭 불필요) 
+    """
     out = pd.DataFrame()
-    #out은 변환될 엑셀 표
-    #여기서 각 속성(로제 양식 속성 등)이 모두 들어가는지..?
-    for rosen_col, source_col in mapping_rules.get("simple_map", {}).items():
-        #rosen_col은 로젠 엑셀의 속성, source_col은 이카운트 엑셀의 속성
-        if source_col != "(선택 안 함)" and source_col in df_data.columns:
-            # 실제로넌 (선택 안 함)이 아닐 것 => 수정사항
-            # 매핑정보에 이카운트 속성이 사용자가 업로드한 파일(이카운트)에 존재한다면,
+    
+    # 1. 사용자 설정 매핑 적용
+    # (주의: "(선택 안 함)"인 경우 빈 문자열로 처리)
+    simple_map = mapping_rules.get("simple_map", {})
+    for rosen_col, source_col in simple_map.items():
+        if source_col and source_col != "(선택 안 함)" and source_col in df_data.columns:
             out[rosen_col] = df_data[source_col]
-            #변환될 엑셀 표의 로젠 속성에는 이카운트에 값이 저장됨
-        elif source_col == "(선택 안 함)":
-            out[rosen_col] = ""
+        else:
+            out[rosen_col] = "" # 빈 값 처리
+
+    # 2. 요청하신 고정값 강제 적용
+    out['택배운임'] = 2900
+    out['운임구분'] = "신용"
+    
+    # 3. 특수 매핑 로직 (수취인 연락처 -> 전화번호 & 핸드폰번호 둘 다 넣기)
+    # (매핑 규칙에서 '수하인전화번호'와 '수하인핸드폰번호'가 각각 매핑되어 있다면 위 1번에서 처리됨)
+    # 만약 사용자가 매핑을 안 했을 경우를 대비해 로직을 넣을 수도 있지만, 
+    # 현재는 사용자가 '매핑 설정' 탭에서 직접 연결하는 구조를 따릅니다.
+
+    # 4. 파일 분리 (수집처 기준)
     split_col = mapping_rules.get("split_col")
-    if split_col and split_col in df_data.columns: #여기는 맞는지 살펴볼 필요가 있다. 일단 문법을 파악해야 해
-        st.info(f"'{split_col}' 기준으로 파일 분리를 시도합니다.")
+    if split_col and split_col in df_data.columns:
+        st.info(f"'{split_col}' 컬럼을 기준으로 파일(네이버, 카카오, 쿠팡)을 분리합니다.")
+        
+        # 데이터가 없는 경우 빈 DF 반환 방지
         df_naver = out[df_data[split_col].str.contains("네이버", na=False)]
         df_kakao = out[df_data[split_col].str.contains("카카오", na=False)]
         df_coupang = out[df_data[split_col].str.contains("쿠팡", na=False)]
-        return {"naver": df_naver, "kakao": df_kakao, "coupang": df_coupang}
-    #왜 return이 두개나 있지..? 그리고 해당 함수는 어쨌든, 로젠 송장 세개로 변환해주는 함수임.
-    return {"single_file": out} #split_col(아마도 수집처column)가 없는 경우
-
-def convert_to_bulk_upload(df_original, df_invoice, mapping_rules):
-    """ (수정됨) (요구사항 4) 원본 + 송장 -> 이카운트 일괄 변환 """
-    
-    # 1. '병합 키(Merge Key)' 생성 (질문 1)
-    merge_keys = mapping_rules.get('merge_keys', [])
-    merge_on_cols = []
-    
-    # 임시 병합 키 컬럼 생성 (예: '수취인'과 '수하인명'을 __KEY_0__ 으로)
-    for i, (src_key, inv_key) in enumerate(merge_keys):
-        if src_key != "(선택 안 함)" and inv_key != "(선택 안 함)":
-            merge_col_name = f"__MERGE_KEY_{i}__"
-            # (데이터 타입이 다를 수 있으므로 str로 통일하여 병합)
-            if src_key in df_original.columns:
-                df_original[merge_col_name] = df_original[src_key].astype(str)
-            if inv_key in df_invoice.columns:
-                df_invoice[merge_col_name] = df_invoice[inv_key].astype(str)
-            
-            if merge_col_name in df_original and merge_col_name in df_invoice:
-                 merge_on_cols.append(merge_col_name)
-    #결과적으로 meroge_on_cols에는 병합에 사용할 컬럼명이 들어감.
-    if not merge_on_cols:
-        st.error("오류: 병합 키(Merge Key)가 설정되지 않았거나, 파일에 해당 컬럼이 없습니다.")
-        return None
-    
-    # (how="left": 원본 주문 데이터를 기준으로, 송장 정보가 있으면 붙김)
-    merged_df = pd.merge(df_original, df_invoice, on=merge_on_cols, how="left")
-    
-    # 2. '일괄 양식' 컬럼 생성 (필드 매핑)
-    out = pd.DataFrame()
-    field_map = mapping_rules.get("field_map", {})
-    
-    for bulk_col, (source_type, source_col) in field_map.items():
-        # (병합 시 원본/송장 컬럼명이 겹칠 수 있으므로, 원본 DataFrame에서 우선 참조)
-        if source_type == "원본" and source_col in df_original.columns:
-            out[bulk_col] = merged_df[f"{source_col}_x"] if f"{source_col}_x" in merged_df else merged_df[source_col]
-        elif source_type == "송장" and source_col in df_invoice.columns:
-            out[bulk_col] = merged_df[f"{source_col}_y"] if f"{source_col}_y" in merged_df else merged_df[source_col]
-
-    # 3. '쇼핑몰 코드' 등 변환 로직 (질문 2)
-    transform = mapping_rules.get("transform", {})
-    if transform:
-        src_col = transform.get('source_col') # 예: '수집처'
-        trg_col = transform.get('target_col') # 예: '쇼핑몰코드'
-        rules = transform.get('rules', {})   # 예: {'네이버': '00001'}
         
-        # (src_col이 _x (원본) 컬럼일 수 있음)
-        src_col_in_merged = f"{src_col}_x" if f"{src_col}_x" in merged_df else src_col
-
-        if trg_col and rules and src_col_in_merged in merged_df.columns:
-            st.info(f"'{src_col_in_merged}' -> '{trg_col}' 변환 적용 중...")
-            # .map()을 사용하여 값 변환
-            out[trg_col] = merged_df[src_col_in_merged].map(rules)
+        return {"naver": df_naver, "kakao": df_kakao, "coupang": df_coupang}
     
-    # 임시 병합 키 컬럼 제거
-    out = out.drop(columns=[col for col in out.columns if "__MERGE_KEY" in str(col)], errors='ignore')
+    return {"single_file": out}
+
+
+# --- 2. 일괄 양식 변환 로직 (핵심 수정: 4가지 속성 매칭) ---
+
+def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
+    """ 
+    이카운트 + 내보내기(송장) -> 일괄 양식
+    식별 로직: 수취인 + 연락처 + 품목명 + 메시지
+    """
+    
+    # --- 1. 매핑 설정에서 컬럼명 가져오기 ---
+    # (사용자가 '매핑 설정' 탭에서 지정한 컬럼명을 가져옵니다)
+    # 예: Ecount의 '수취인' 컬럼이 실제 파일에선 '받는분'일 수 있음.
+    
+    cols_cfg = mapping_rules.get("match_columns", {})
+    
+    # 이카운트 쪽 컬럼명
+    e_name = cols_cfg.get('ecount_name', '수취인')
+    e_contact = cols_cfg.get('ecount_contact', '수취인 연락처1')
+    e_item = cols_cfg.get('ecount_item', '품목명(ERP)')
+    e_msg = cols_cfg.get('ecount_msg', '배송요청사항')
+    
+    # 송장(내보내기) 쪽 컬럼명
+    i_name = cols_cfg.get('invoice_name', '수하인명')
+    i_contact = cols_cfg.get('invoice_contact', '수하인휴대폰') # 혹은 수하인전화
+    i_item = cols_cfg.get('invoice_item', '품목명')
+    i_msg = cols_cfg.get('invoice_msg', '배송메세지')
+
+    # 필수 컬럼 확인
+    missing = []
+    for c in [e_name, e_contact, e_item, e_msg]:
+        if c not in df_ecount.columns: missing.append(f"이카운트-[{c}]")
+    for c in [i_name, i_contact, i_item, i_msg]:
+        if c not in df_invoice.columns: missing.append(f"송장-[{c}]")
+    
+    if missing:
+        st.error(f"매칭에 필요한 컬럼이 파일에 없습니다: {', '.join(missing)}")
+        st.warning("팁: '설정 > 3. 매핑 설정'에서 매칭에 사용할 컬럼 이름을 정확히 지정해주세요.")
+        return None
+
+    # --- 2. 복합 키(Composite Key) 생성 ---
+    # 4가지 정보를 합쳐서 '고유 ID'를 만듭니다. (공백 제거 등 전처리 포함)
+    
+    # 이카운트 키 생성
+    df_ecount['__MATCH_KEY__'] = (
+        df_ecount[e_name].apply(clean_text) + "_" +
+        df_ecount[e_contact].apply(clean_text) + "_" +
+        df_ecount[e_item].apply(clean_text) + "_" +
+        df_ecount[e_msg].apply(clean_text)
+    )
+    
+    # 송장 키 생성
+    df_invoice['__MATCH_KEY__'] = (
+        df_invoice[i_name].apply(clean_text) + "_" +
+        df_invoice[i_contact].apply(clean_text) + "_" +
+        df_invoice[i_item].apply(clean_text) + "_" +
+        df_invoice[i_msg].apply(clean_text)
+    )
+
+    # --- 3. 병합 (Merge) ---
+    # 이카운트(원본)를 기준으로 송장 정보를 옆에 붙입니다.
+    merged = pd.merge(df_ecount, df_invoice, on='__MATCH_KEY__', how='left', suffixes=('_erp', '_inv'))
+    
+    # --- 4. 결과 데이터 생성 ---
+    out = pd.DataFrame()
+    
+    # (1) 쇼핑몰 코드 (변환 규칙 적용)
+    # 예: 수집처가 '네이버'면 '00001'
+    transform = mapping_rules.get("transform", {})
+    src_col = transform.get('source_col', '수집처') # 이카운트의 '수집처'
+    
+    if src_col in df_ecount.columns:
+        # 병합된 데이터프레임에서도 해당 컬럼을 찾음 (이름 충돌 시 _erp가 붙었을 수 있음)
+        target_col_name = src_col if src_col in merged.columns else f"{src_col}_erp"
+        
+        if target_col_name in merged.columns:
+            rules = transform.get('rules', {})
+            # 값이 없으면 원래 값 유지하거나 빈칸 (여기서는 룰에 없으면 빈칸)
+            out['쇼핑몰코드'] = merged[target_col_name].map(rules).fillna("")
+        else:
+            out['쇼핑몰코드'] = ""
+    else:
+        out['쇼핑몰코드'] = ""
+
+    # (2) 주문번호, 묶음주문번호, 배송방법코드 (이카운트에서 가져옴)
+    # 사용자가 지정한 컬럼명을 써야 하지만, 우선 요구사항의 표준 이름을 찾습니다.
+    ecount_std_cols = ['주문번호', '묶음주문번호', '배송방법코드']
+    for col in ecount_std_cols:
+        # 병합 과정에서 이름이 변경되었을 수 있으므로 확인
+        if col in merged.columns:
+            out[col] = merged[col]
+        elif f"{col}_erp" in merged.columns:
+            out[col] = merged[f"{col}_erp"]
+        else:
+            out[col] = "" # 없으면 빈 값
+
+    # (3) 송장번호 (송장 파일에서 가져옴)
+    # 송장 파일의 '운송장번호' 컬럼
+    inv_no_col = '운송장번호' # (추후 매핑 설정 가능하게 변경 가능)
+    if inv_no_col in merged.columns:
+        out['송장번호'] = merged[inv_no_col]
+    elif f"{inv_no_col}_inv" in merged.columns:
+        out['송장번호'] = merged[f"{inv_no_col}_inv"]
+    else:
+        out['송장번호'] = "" # 매칭 실패했거나 컬럼이 없으면 빈 값
+
     return out
 
 
@@ -151,351 +227,264 @@ def convert_to_bulk_upload(df_original, df_invoice, mapping_rules):
 # --- Streamlit UI 구성 ---
 # ######################################################################
 
-st.set_page_config(page_title="excelConverter v4 (Full)", layout="wide")
-st.title("🚚 excelConverter v4 (필수 필드 / 병합 기능)")
+st.set_page_config(page_title="excelConverter Final", layout="wide")
+st.title("🚚 excelConverter (Final)")
 
-# --- 메인 1. 실행 페이지 / 메인 2. 설정 페이지 ---
 page_run, page_setup = st.tabs(["실행 (매일 작업)", "설정 (최초 1회)"])
 
-# ########## 메인 1: 실행 (Run) 페이지 ##########
+# ########## 1. 실행 페이지 ##########
 with page_run:
-    st.sidebar.button("⚙️ 설정 새로고침 (DB Reload)", on_click=load_config_to_session)
+    st.sidebar.button("⚙️ 설정 새로고침", on_click=load_config_to_session)
     
-    tab_run_rosen, tab_run_bulk = st.tabs([
-        "1. 로젠 송장 변환", 
-        "2. 이카운트 일괄 양식 생성"
-    ])
+    tab_rosen, tab_bulk = st.tabs(["1. 로젠 송장 변환", "2. 이카운트 일괄 양식 생성"])
 
-    # --- 1-1. 로젠 송장 변환 실행 ---
-    with tab_run_rosen:
-        with st.expander("이카운트 -> 로젠 변환", expanded=True):
-            rules = st.session_state.mappings.get("ecount_to_rosen")
-            src_template = st.session_state.templates.get("ecount")
-
-            if not rules or not src_template:
-                st.error("⚠️ '설정' 탭에서 [이카운트 양식]과 [로젠 매핑]을 먼저 완료해주세요.")
-            else:
-                up_data = st.file_uploader("이카운트 '주문 데이터' 엑셀 업로드", key="run_ecount_data")
-                if up_data:
-                    df_data = load_data(up_data)
-                    if df_data is not None:
-                        # (수정됨 - 질문 3) '필수 속성' 검증
-                        required_cols = [c['name'] for c in src_template if c['required']]
-                        missing_cols = [col for col in required_cols if col not in df_data.columns]
-                        
-                        if missing_cols:
-                            st.error(f"오류: 업로드한 파일에 필수 속성이 누락되었습니다: {missing_cols}")
-                        else:
-                            st.success("✅ 필수 속성 확인 완료.")
-                            if st.button("로젠 양식으로 변환 실행", key="run_ecount_btn"):
-                                with st.spinner("변환 중..."):
-                                    result_dfs = convert_to_rosen(df_data, rules)
-                                    for name, df_result in result_dfs.items():
-                                        st.subheader(f"✅ {name} 변환 결과 (미리보기)")
-                                        st.dataframe(df_result.head(5), use_container_width=True)
-                                        st.download_button(
-                                            f"⬇️ {name}.xlsx 다운로드",
-                                            data=to_excel_bytes(df_result),
-                                            file_name=f"rosen_{name}.xlsx"
-                                        )
-        # (다른 탭...)
-        with st.expander("네이버 -> 로젠 변환", expanded=False):
-            st.info("... (구현 방식 동일)")
-
-    # --- 1-2. 이카운트 일괄 양식 생성 실행 ---
-    with tab_run_bulk:
-        tab_rb_ecount, tab_rb_store = st.tabs([
-            "이카운트 원본 + 송장", "개별 스토어 원본 + 송장"
-        ])
+    # --- [실행] 로젠 송장 변환 ---
+    with tab_rosen:
+        st.subheader("이카운트 ERP ➔ 로젠 송장 양식")
         
-        with tab_rb_ecount:
-            rules = st.session_state.mappings.get("bulk_ecount")
-            src_template = st.session_state.templates.get("ecount")
-            # (주의: '내보내기 양식'도 별도 템플릿으로 등록해야 함)
-            inv_template = st.session_state.templates.get("rosen_invoice") # '내보내기 양식' 템플릿 이름
+        # 설정 확인
+        rules = st.session_state.mappings.get("ecount_to_rosen")
+        if not rules:
+            st.error("⚠️ '설정' 탭에서 [이카운트 -> 로젠] 매핑을 먼저 해주세요.")
+        else:
+            # 헤더 위치 지정 기능 추가
+            row_idx = st.number_input("데이터 파일의 제목(Header)은 몇 번째 줄인가요?", min_value=1, value=1, step=1) - 1
+            up_file = st.file_uploader("이카운트 주문 엑셀 업로드", key="run_ecount")
             
-            if not rules or not src_template or not inv_template:
-                st.error("⚠️ '설정' 탭에서 [이카운트 양식], [내보내기 양식], [일괄 매핑]을 모두 완료해주세요.")
-                st.info("('내보내기 양식'은 '2. 대상 양식' 탭에서 'rosen_invoice' 등의 이름으로 등록해야 합니다.)")
-            else:
-                up_original = st.file_uploader("1) 이카운트 '원본 주문' 파일", key="bulk_ecount_orig")
-                up_invoice = st.file_uploader("2) 로젠 '송장번호 포함(내보내기)' 파일", key="bulk_ecount_inv")
+            if up_file:
+                df = load_data(up_file, header_row_idx=row_idx)
+                if df is not None:
+                    if st.button("변환 실행"):
+                        res = convert_to_rosen(df, rules)
+                        
+                        # 결과 출력 (3개로 분리된 것 or 1개)
+                        cols = st.columns(3)
+                        idx = 0
+                        for name, df_res in res.items():
+                            with cols[idx % 3]:
+                                st.success(f"✅ {name} ({len(df_res)}건)")
+                                st.dataframe(df_res.head(3), use_container_width=True)
+                                st.download_button(
+                                    f"⬇️ {name}_로젠.xlsx",
+                                    data=to_excel_bytes(df_res),
+                                    file_name=f"rosen_{name}.xlsx"
+                                )
+                            idx += 1
+
+    # --- [실행] 일괄 양식 생성 ---
+    with tab_bulk:
+        st.subheader("이카운트 + 내보내기(송장) ➔ 일괄 양식")
+        st.info("ℹ️ 수취인+연락처+품목+메시지가 모두 일치하는 주문을 자동으로 연결합니다.")
+        
+        rules_bulk = st.session_state.mappings.get("bulk_ecount")
+        if not rules_bulk:
+            st.error("⚠️ '설정' 탭에서 [일괄 양식 매핑]을 먼저 해주세요.")
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                h1 = st.number_input("이카운트 파일 제목 줄 번호", min_value=1, value=1, key="h1") - 1
+                up_erp = st.file_uploader("1) 이카운트 원본", key="bulk_erp")
+            with c2:
+                h2 = st.number_input("송장 파일 제목 줄 번호", min_value=1, value=1, key="h2") - 1
+                up_inv = st.file_uploader("2) 로젠 내보내기(송장)", key="bulk_inv")
+            
+            if up_erp and up_inv:
+                df_e = load_data(up_erp, header_row_idx=h1)
+                df_i = load_data(up_inv, header_row_idx=h2)
                 
-                if up_original and up_invoice:
-                    df_orig = load_data(up_original)
-                    df_inv = load_data(up_invoice)
-                    
-                    if df_orig is not None and df_inv is not None:
-                        # (수정됨 - 질문 3) 양쪽 파일 '필수 속성' 검증
-                        req_src = [c['name'] for c in src_template if c['required']]
-                        req_inv = [c['name'] for c in inv_template if c['required']]
-                        missing_src = [c for c in req_src if c not in df_orig.columns]
-                        missing_inv = [c for c in req_inv if c not in df_inv.columns]
-
-                        if missing_src or missing_inv:
-                            if missing_src: st.error(f"원본 파일 필수 속성 누락: {missing_src}")
-                            if missing_inv: st.error(f"송장 파일 필수 속성 누락: {missing_inv}")
-                        else:
-                            st.success("✅ 양쪽 파일 필수 속성 확인 완료.")
-                            if st.button("이카운트 일괄 양식 생성", key="run_bulk_ecount_btn"):
-                                with st.spinner("생성 중..."):
-                                    df_result = convert_to_bulk_upload(df_orig, df_inv, rules)
-                                    if df_result is not None:
-                                        st.subheader("✅ 일괄 양식 생성 결과 (미리보기)")
-                                        st.dataframe(df_result.head(), use_container_width=True)
-                                        st.download_button(
-                                            "⬇️ ecount_upload.xlsx 다운로드",
-                                            data=to_excel_bytes(df_result),
-                                            file_name="ecount_bulk_upload.xlsx"
-                                        )
-        with tab_rb_store:
-            st.info("... (구현 방식 동일)")
+                if df_e is not None and df_i is not None:
+                    if st.button("일괄 양식 생성"):
+                        final_df = convert_to_bulk_upload(df_e, df_i, rules_bulk)
+                        if final_df is not None:
+                            st.success(f"✅ 생성 완료! (총 {len(final_df)}건)")
+                            st.dataframe(final_df.head(), use_container_width=True)
+                            st.download_button(
+                                "⬇️ 이카운트_일괄업로드.xlsx",
+                                data=to_excel_bytes(final_df),
+                                file_name="ecount_bulk_upload.xlsx"
+                            )
 
 
-# ########## 메인 2: 설정 (Setup) 페이지 ##########
+# ########## 2. 설정 페이지 ##########
 with page_setup:
-    st.warning("⚠️ 여기서 설정한 내용은 DB에 영구 저장됩니다.")
+    st.warning("⚠️ 설정은 DB에 자동 저장됩니다.")
+    t1, t2, t3 = st.tabs(["1. 양식 등록", "2. 로젠 변환 매핑", "3. 일괄 양식 매칭 설정"])
+
+    # --- [설정] 1. 양식 등록 ---
+    # with t1:
+    #     st.write("각 엑셀 파일의 헤더(제목) 정보를 등록합니다.")
+    #     template_names = ["ecount", "rosen", "rosen_invoice", "ecount_bulk"]
+    #     labels = {
+    #         "ecount": "이카운트 주문서",
+    #         "rosen": "로젠 송장 양식 (변환용)",
+    #         "rosen_invoice": "로젠 내보내기 양식 (송장번호 포함)",
+    #         "ecount_bulk": "이카운트 일괄 양식 (최종 결과물)"
+    #     }
+        
+    #     selected_tmp = st.selectbox("설정할 양식 선택", template_names, format_func=lambda x: labels[x])
+    #     #사용자가 클릭 시, template_names중에 하나의 값이  foramt_func의 x로 들어가서 labels[x]의 값으로 보여짐.
+    #     #seleccted_tmp의 예시값: "ecount"
+
+    #     # 헤더 위치 지정 추가
+    #     row_idx_setup = st.number_input(f"업로드할 '{labels[selected_tmp]}' 샘플 파일의 제목 줄 번호", min_value=1, value=1) - 1
+    #     up_tmp = st.file_uploader(f"{labels[selected_tmp]} 샘플 파일 업로드", key=f"setup_{selected_tmp}")
+    #     #up_tmp: 사용자가 업로드한 파일 객체
+
+    #     if up_tmp: # 사용자가 파일을 업로드했을 때
+    #         headers = load_headers(up_tmp, header_row_idx=row_idx_setup)
+    #         print(headers)
+    #         if headers:
+    #             st.write("감지된 헤더:", headers)
+    #             if st.button("✅ 이 양식 저장", key=f"save_{selected_tmp}"):
+    #                 # 단순 리스트로 저장 (필수 여부 로직은 복잡하니 일단 제외하고 헤더 리스트만 저장)
+    #                 database.save_template(selected_tmp, headers) 
+    #                 st.session_state.templates[selected_tmp] = headers
+    #                 st.success("저장되었습니다.")
+    with t1:
+            st.write("각 엑셀 파일의 헤더(제목) 정보를 등록합니다.")
+            template_names = ["ecount", "rosen", "rosen_invoice", "ecount_bulk"]
+            labels = {
+                "ecount": "이카운트 주문서",
+                "rosen": "로젠 송장 양식 (변환용)",
+                "rosen_invoice": "로젠 내보내기 양식 (송장번호 포함)",
+                "ecount_bulk": "이카운트 일괄 양식 (최종 결과물)"
+            }
+            
+            selected_tmp = st.selectbox("설정할 양식 선택", template_names, format_func=lambda x: labels[x])
     
-    tab_setup_source, tab_setup_target, tab_setup_mapping = st.tabs([
-        "1. 원본 양식 설정 (이카운트, 네이버...)",
-        "2. 대상 양식 설정 (로젠, 일괄 양식, 내보내기)",
-        "3. 매핑 설정 (연결하기)"
-    ])
-
-    # --- 2-1. 원본 양식(템플릿) 설정 (수정됨) ---
-    with tab_setup_source:
-        sources = ["ecount", "naver", "kakao", "coupang"]
-        for name in sources:
-            with st.expander(f"'{name}' 원본 양식 설정"):
-                up_file = st.file_uploader(f"'{name}' 엑셀 양식 파일 업로드", type=['xlsx', 'csv'], key=f"setup_{name}")
+            # --- [핵심 변경 포인트] ---
+            # 1. 현재 선택한 양식의 데이터가 이미 있는지 확인
+            # (DB에서 불러온 값이 st.session_state.templates에 들어있다고 가정)
+            saved_headers = st.session_state.templates.get(selected_tmp)
+    
+            # A. 이미 저장된 정보가 있다면 -> 결과만 보여줌 (업로드 창 숨김)
+            if saved_headers:
+                st.info(f"✅ '{labels[selected_tmp]}' 양식은 이미 설정되어 있습니다.")
+                st.write("등록된 헤더 정보:", saved_headers)
                 
-                if up_file:
-                    headers = load_headers(up_file)
-                    if headers:
-                        st.info("파일에서 다음 속성(헤더)을 감지했습니다. '필수' 항목을 체크하고 저장하세요.")
-                        # (수정됨 - 질문 3) 필수 속성 체크 UI
-                        with st.form(key=f"form_setup_{name}"):
-                            template_config = [] # [{name: 'col1', required: True}, ...]
-                            for col in headers:
-                                # (이전에 저장된 값이 있으면 그걸 기본값으로)
-                                current_config = st.session_state.templates.get(name, [])
-                                is_checked = False
-                                for item in current_config:
-                                    if item['name'] == col and item['required']:
-                                        is_checked = True
-                                        break
-                                
-                                is_required = st.checkbox(f"`{col}`", value=is_checked, key=f"req_{name}_{col}")
-                                template_config.append({"name": col, "required": is_required})
-                            
-                            if st.form_submit_button("✅ 이 양식 저장"):
-                                database.save_template(name, template_config)
-                                st.session_state.templates[name] = template_config
-                                st.success("저장 완료!")
-
-                st.subheader(f"현재 등록된 '{name}' 양식 속성")
-                current_template = st.session_state.templates.get(name)
-                if current_template:
-                    # (수정됨) 필수/선택 나눠서 보여주기
-                    required = [c['name'] for c in current_template if c['required']]
-                    optional = [c['name'] for c in current_template if not c['required']]
-                    st.code(f"필수 속성 ({len(required)}개): {required}\n선택 속성 ({len(optional)}개): {optional}")
-                else:
-                    st.code("등록된 양식이 없습니다.")
-
-    # --- 2-2. 대상 양식(템플릿) 설정 (수정됨) ---
-    with tab_setup_target:
-        # (수정됨) 'rosen_invoice' (내보내기 양식) 추가
-        targets = ["rosen", "rosen_invoice", "ecount_bulk"] 
-        target_names = {
-            "rosen": "로젠 송장 양식 (변환 대상)", 
-            "rosen_invoice": "로젠 내보내기 양식 (송장번호 포함)",
-            "ecount_bulk": "이카운트 일괄 양식"
-        }
-        st.info("'내보내기 양식'은 '일괄 양식 생성' 시 '필수 속성' 검증에 사용됩니다.")
-        
-        for name in targets:
-            # (UI는 원본 양식 설정과 동일)
-            with st.expander(f"'{target_names.get(name, name)}' 대상 양식 설정"):
-                up_file = st.file_uploader(f"'{name}' 엑셀 양식 파일 업로드", type=['xlsx', 'csv'], key=f"setup_{name}")
-                if up_file:
-                    headers = load_headers(up_file)
-                    if headers:
-                        with st.form(key=f"form_setup_{name}"):
-                            template_config = []
-                            for col in headers:
-                                current_config = st.session_state.templates.get(name, [])
-                                is_checked = False
-                                for item in current_config:
-                                    if item['name'] == col and item['required']:
-                                        is_checked = True
-                                        break
-                                is_required = st.checkbox(f"`{col}`", value=is_checked, key=f"req_{name}_{col}")
-                                template_config.append({"name": col, "required": is_required})
-                            
-                            if st.form_submit_button("✅ 이 양식 저장"):
-                                database.save_template(name, template_config)
-                                st.session_state.templates[name] = template_config
-                                st.success("저장 완료!")
-
-                st.subheader(f"현재 등록된 '{name}' 양식 속성")
-                current_template = st.session_state.templates.get(name)
-                if current_template:
-                    required = [c['name'] for c in current_template if c['required']]
-                    optional = [c['name'] for c in current_template if not c['required']]
-                    st.code(f"필수 속성 ({len(required)}개): {required}\n선택 속성 ({len(optional)}개): {optional}")
-                else:
-                    st.code("등록된 양식이 없습니다.")
-
-    # --- 2-3. 매핑 설정 (수정됨) ---
-    with tab_setup_mapping:
-        
-        # (이카운트 -> 로젠 매핑)
-        with st.expander("3-1. 이카운트 양식 => 로젠 송장 양식 매핑"):
-            src_template = st.session_state.templates.get("ecount")
-            target_template = st.session_state.templates.get("rosen")
-            
-            if not src_template or not target_template:
-                st.warning("먼저 '1. 원본'과 '2. 대상' 탭에서 [이카운트]와 [로젠] 양식을 모두 등록해야 합니다.")
+                # 수정하고 싶을 때를 대비한 버튼
+                if st.button("🗑️ 기존 설정 삭제하고 다시 업로드하기", key=f"reset_{selected_tmp}"):
+                    database.delete_template(selected_tmp) # DB에서 해당 템플릿 삭제
+                    del st.session_state.templates[selected_tmp] # 세션에서 삭제
+                    st.rerun() # 화면 즉시 새로고침 -> 아래 'else'로 넘어감
+    
+            # B. 저장된 정보가 없다면 -> 업로드 창 보여줌 (기존 로직)
             else:
-                src_cols = [c['name'] for c in src_template]
-                target_cols = [c['name'] for c in target_template]
-                options = ["(선택 안 함)"] + src_cols
-
-                with st.form(key="form_ecount_to_rosen"):
-                    current_mapping = st.session_state.mappings.get("ecount_to_rosen", {})
-                    new_rules = {}
-                    
-                    st.subheader("단순 매핑")
-                    simple_map = {}
-                    for target_col in target_cols:
-                        default_val = current_mapping.get("simple_map", {}).get(target_col, "(선택 안 함)")
-                        default_idx = options.index(default_val) if default_val in options else 0
-                        simple_map[target_col] = st.selectbox(
-                            f"'{target_col}' (로젠)  <── ",
-                            options, index=default_idx, key=f"map_ecount_{target_col}"
-                        )
-                    new_rules["simple_map"] = simple_map
-                    
-                    st.subheader("파일 분리 규칙 (수집처)")
-                    split_col_default = current_mapping.get("split_col", "(선택 안 함)")
-                    split_col_idx = options.index(split_col_default) if split_col_default in options else 0
-                    new_rules["split_col"] = st.selectbox(
-                        "파일 분리 기준이 되는 '수집처' 컬럼 선택:",
-                        options, index=split_col_idx, key="map_ecount_split"
-                    )
-                    
-                    if st.form_submit_button("✅ 이카운트 -> 로젠 매핑 저장"):
-                        database.save_mapping("ecount_to_rosen", new_rules)
-                        st.session_state.mappings["ecount_to_rosen"] = new_rules
-                        st.json(new_rules)
-
-        # (다른 3개 매핑 버튼...)
-        st.expander("3-2. 네이버 양식 => 로젠 송장 양식 매핑 (구현 방식 동일)", expanded=False)
-
-        st.divider()
-        st.subheader("일괄 양식 매핑 설정")
-        
-        # (수정됨 - 질문 1, 2) 일괄 양식 매핑 UI
-        with st.expander("4-1. 이카운트 원본+송장 => 일괄 양식 매핑", expanded=True):
-            # (주의: 'rosen_invoice' 사용)
-            src_template = st.session_state.templates.get("ecount")
-            invoice_template = st.session_state.templates.get("rosen_invoice")
-            bulk_template = st.session_state.templates.get("ecount_bulk")
-            
-            if not src_template or not invoice_template or not bulk_template:
-                st.warning("먼저 [이카운트], [로젠 내보내기], [이카운트 일괄] 양식을 모두 등록해야 합니다.")
-            else:
-                src_cols = [c['name'] for c in src_template]
-                invoice_cols = [c['name'] for c in invoice_template]
-                bulk_cols = [c['name'] for c in bulk_template]
+                st.warning(f"아직 '{labels[selected_tmp]}' 설정이 없습니다. 파일을 업로드해주세요.")
                 
-                with st.form(key="form_bulk_ecount_map"):
-                    current_mapping = st.session_state.mappings.get("bulk_ecount", {})
-                    new_rules = {}
+                row_idx_setup = st.number_input(f"업로드할 '{labels[selected_tmp]}' 샘플 파일의 제목 줄 번호", min_value=1, value=1) - 1
+                up_tmp = st.file_uploader(f"{labels[selected_tmp]} 샘플 파일 업로드", key=f"setup_{selected_tmp}")
+    
+                if up_tmp:
+                    headers = load_headers(up_tmp, header_row_idx=row_idx_setup)
+                    if headers:
+                        st.write("감지된 헤더:", headers)
+                        if st.button("✅ 이 양식 저장", key=f"save_{selected_tmp}"):
+                            database.save_template(selected_tmp, headers) 
+                            st.session_state.templates[selected_tmp] = headers
+                            st.success("저장되었습니다!")
+                            st.rerun() # 저장 직후 화면을 갱신해서 바로 'A' 상태로 전환
+        # --- [설정] 2. 로젠 변환 매핑 ---
+    with t2:
+        st.subheader("이카운트 ➔ 로젠 매핑")
+        
+        src_cols = st.session_state.templates.get("ecount")
+        tgt_cols = st.session_state.templates.get("rosen")
+        
+        if not src_cols or not tgt_cols:
+            st.error("먼저 '1. 양식 등록'에서 이카운트와 로젠 양식을 등록해주세요.")
+        else:
+            with st.form("map_rosen_form"):
+                # 단순 매핑
+                st.write("##### 1:1 컬럼 연결")
+                current_map = st.session_state.mappings.get("ecount_to_rosen", {}).get("simple_map", {})
+                new_simple_map = {}
+                
+                # 타겟(로젠) 컬럼을 기준으로 소스(이카운트)를 선택
+                for t_col in tgt_cols:
+                    # 고정값인 경우 스킵 가능하나, 보여주는게 명확함
+                    if t_col in ['택배운임', '운임구분']:
+                        st.text_input(f"{t_col} (고정값)", value="2900" if t_col=='택배운임' else "신용", disabled=True)
+                        continue
+                        
+                    prev_val = current_map.get(t_col, "(선택 안 함)")
+                    idx = 0
+                    if prev_val in ["(선택 안 함)"] + src_cols:
+                        idx = (["(선택 안 함)"] + src_cols).index(prev_val)
+                    
+                    val = st.selectbox(f"로젠 [{t_col}] <== 이카운트 [?]", ["(선택 안 함)"] + src_cols, index=idx, key=f"rm_{t_col}")
+                    new_simple_map[t_col] = val
+                
+                st.write("##### 파일 분리 기준")
+                # 수집처 컬럼 선택
+                prev_split = st.session_state.mappings.get("ecount_to_rosen", {}).get("split_col", "(선택 안 함)")
+                split_idx = (["(선택 안 함)"] + src_cols).index(prev_split) if prev_split in src_cols else 0
+                split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", ["(선택 안 함)"] + src_cols, index=split_idx)
 
-                    # --- 1. 병합 키(Merge Key) 설정 (질문 1) ---
-                    st.subheader("1. 병합 키(Merge Key) 설정")
-                    st.info("두 파일(원본, 송장)을 하나로 합칠 '공통 기준'을 설정합니다. (예: 수취인 <-> 수하인명)")
-                    
-                    current_merge_keys = current_mapping.get('merge_keys', [("(선택 안 함)", "(선택 안 함)")]*2)
-                    merge_keys = []
-                    
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.write("`원본(이카운트)` 컬럼")
-                        key_src_1 = st.selectbox("병합 키 1 (원본)", ["(선택 안 함)"] + src_cols, index=src_cols.index(current_merge_keys[0][0]) + 1 if current_merge_keys[0][0] in src_cols else 0)
-                        key_src_2 = st.selectbox("병합 키 2 (원본)", ["(선택 안 함)"] + src_cols, index=src_cols.index(current_merge_keys[1][0]) + 1 if current_merge_keys[1][0] in src_cols else 0)
-                    with c2:
-                        st.write("`송장(내보내기)` 컬럼")
-                        key_inv_1 = st.selectbox("병합 키 1 (송장)", ["(선택 안 함)"] + invoice_cols, index=invoice_cols.index(current_merge_keys[0][1]) + 1 if current_merge_keys[0][1] in invoice_cols else 0)
-                        key_inv_2 = st.selectbox("병합 키 2 (송장)", ["(선택 안 함)"] + invoice_cols, index=invoice_cols.index(current_merge_keys[1][1]) + 1 if current_merge_keys[1][1] in invoice_cols else 0)
-                    
-                    merge_keys.append((key_src_1, key_inv_1))
-                    merge_keys.append((key_src_2, key_inv_2))
-                    new_rules['merge_keys'] = merge_keys
+                if st.form_submit_button("매핑 저장"):
+                    full_rule = {"simple_map": new_simple_map, "split_col": split_col}
+                    database.save_mapping("ecount_to_rosen", full_rule)
+                    st.session_state.mappings["ecount_to_rosen"] = full_rule
+                    st.success("저장 완료")
 
-                    # --- 2. 필드 매핑 ---
-                    st.subheader("2. 필드 매핑")
-                    st.info("'일괄 양식'의 각 필드를 어떤 파일에서 가져올지 설정합니다.")
-                    field_map = {}
-                    options_map = ["(선택 안 함)"] + \
-                                  [f"원본::{col}" for col in src_cols] + \
-                                  [f"송장::{col}" for col in invoice_cols]
-                    
-                    current_field_map = current_mapping.get("field_map", {})
-                    for col in bulk_cols:
-                        default_val = "(선택 안 함)"
-                        if col in current_field_map:
-                            source_type, source_col = current_field_map[col]
-                            default_val = f"{source_type}::{source_col}"
-                        
-                        default_idx = options_map.index(default_val) if default_val in options_map else 0
-                        
-                        selected = st.selectbox(f"'{col}' (일괄) <── ", options_map, index=default_idx, key=f"bm_{col}")
-                        
-                        if selected != "(선택 안 함)":
-                            source_type_str, source_col_str = selected.split("::")
-                            field_map[col] = (source_type_str, source_col_str)
-                    new_rules['field_map'] = field_map
+    # --- [설정] 3. 일괄 양식 매칭 설정 ---
+    with t3:
+        st.subheader("일괄 양식 생성을 위한 '식별자 매칭' 설정")
+        st.info("두 파일을 연결하기 위해, 의미가 같은 컬럼끼리 짝지어 주세요.")
+        
+        e_cols = st.session_state.templates.get("ecount")
+        i_cols = st.session_state.templates.get("rosen_invoice")
+        
+        if not e_cols or not i_cols:
+            st.error("이카운트와 로젠 내보내기 양식을 먼저 등록해주세요.")
+        else:
+            with st.form("bulk_match_form"):
+                curr_match = st.session_state.mappings.get("bulk_ecount", {}).get("match_columns", {})
+                
+                c1, c2 = st.columns(2)
+                with c1: st.write("##### 이카운트 (원본)")
+                with c2: st.write("##### 로젠 (내보내기)")
 
-                    # --- 3. 변환 규칙 (쇼핑몰 코드) (질문 2) ---
-                    st.subheader("3. 변환 규칙 (예: 쇼핑몰 코드)")
-                    st.info("'수집처' 같은 값을 '쇼핑몰 코드'로 변환하는 규칙입니다.")
-                    
-                    current_transform = current_mapping.get("transform", {})
-                    transform = {}
-                    
-                    c1, c2 = st.columns(2)
-                    default_src = current_transform.get('source_col', "(선택 안 함)")
-                    default_trg = current_transform.get('target_col', "(선택 안 함)")
-                    
-                    transform['source_col'] = c1.selectbox("기준 컬럼 (원본)", ["(선택 안 함)"] + src_cols, 
-                                                           index=src_cols.index(default_src) + 1 if default_src in src_cols else 0, key="tr_src")
-                    transform['target_col'] = c2.selectbox("적용 컬럼 (일괄)", ["(선택 안 함)"] + bulk_cols, 
-                                                           index=bulk_cols.index(default_trg) + 1 if default_trg in bulk_cols else 0, key="tr_trg")
-                    
-                    default_rules_str = "\n".join([f"{k}={v}" for k, v in current_transform.get('rules', {}).items()])
-                    if not default_rules_str:
-                        default_rules_str = "네이버스마트스토어=00001\n카카오 선물하기=00003\n쿠팡=00004"
-                        
-                    transform_rules_str = st.text_area(
-                        "변환 규칙 (한 줄에 하나씩, 예: 네이버=00001)", 
-                        value=default_rules_str,
-                        height=100
-                    )
-                    
-                    rules_map = {}
-                    for line in transform_rules_str.split("\n"):
+                # 1. 수취인 이름
+                en = c1.selectbox("수취인 이름 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_name')) if curr_match.get('ecount_name') in e_cols else 0)
+                in_ = c2.selectbox("수하인 이름 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_name')) if curr_match.get('invoice_name') in i_cols else 0)
+
+                # 2. 연락처
+                ec = c1.selectbox("연락처 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_contact')) if curr_match.get('ecount_contact') in e_cols else 0)
+                ic = c2.selectbox("연락처(휴대폰) 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_contact')) if curr_match.get('invoice_contact') in i_cols else 0)
+                
+                # 3. 품목명
+                ei = c1.selectbox("품목명 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_item')) if curr_match.get('ecount_item') in e_cols else 0)
+                ii = c2.selectbox("품목명 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_item')) if curr_match.get('invoice_item') in i_cols else 0)
+
+                # 4. 메시지
+                em = c1.selectbox("배송메시지 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_msg')) if curr_match.get('ecount_msg') in e_cols else 0)
+                im = c2.selectbox("배송메시지 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_msg')) if curr_match.get('invoice_msg') in i_cols else 0)
+
+                st.write("##### 쇼핑몰 코드 변환 규칙")
+                st.write("예: 네이버스마트스토어=00001 (한 줄에 하나씩)")
+                prev_rules = st.session_state.mappings.get("bulk_ecount", {}).get("transform", {}).get("rules", {})
+                rules_str = "\n".join([f"{k}={v}" for k,v in prev_rules.items()])
+                txt_rules = st.text_area("변환 규칙 입력", value=rules_str if rules_str else "네이버스마트스토어=00001\n카카오 선물하기=00003\n쿠팡=00004")
+
+                if st.form_submit_button("설정 저장"):
+                    # 규칙 파싱
+                    rule_dict = {}
+                    for line in txt_rules.split("\n"):
                         if "=" in line:
                             k, v = line.split("=", 1)
-                            if k.strip():
-                                rules_map[k.strip()] = v.strip()
-                    transform['rules'] = rules_map
-                    new_rules['transform'] = transform
-                    
-                    if st.form_submit_button("✅ 이카운트 일괄 양식 매핑 저장"):
-                        database.save_mapping("bulk_ecount", new_rules)
-                        st.session_state.mappings["bulk_ecount"] = new_rules
-                        st.success("저장 완료!")
-                        st.json(new_rules)
+                            rule_dict[k.strip()] = v.strip()
+
+                    full_cfg = {
+                        "match_columns": {
+                            "ecount_name": en, "ecount_contact": ec, "ecount_item": ei, "ecount_msg": em,
+                            "invoice_name": in_, "invoice_contact": ic, "invoice_item": ii, "invoice_msg": im
+                        },
+                        "transform": {
+                            "source_col": "수집처", # 이카운트는 보통 '수집처' 고정이라 가정 (필요시 선택 가능하게 변경)
+                            "rules": rule_dict
+                        }
+                    }
+                    database.save_mapping("bulk_ecount", full_cfg)
+                    st.session_state.mappings["bulk_ecount"] = full_cfg
+                    st.success("설정 저장 완료")
