@@ -1,8 +1,11 @@
-import io
-import pandas as pd
-import streamlit as st
 import database 
 import os
+import pandas as pd             # 엑셀 데이터를 다루는 핵심 라이브러리
+import streamlit as st          # 화면에 에러나 경고를 띄우기 위해 필요
+import io                       # 파일을 디스크에 저장하지 않고 '메모리'에서만 다루기 위한 도구
+import msoffcrypto              # 엑셀 암호를 해제해주는 열쇠 도구
+from xlrd import XLRDError      # "암호 걸려있음"이라는 특정 에러를 잡아내기 위해 가져옴
+
 
 # --- 0. DB 초기화 및 설정 로드 ---
 database.init_db()
@@ -27,26 +30,62 @@ def load_config_to_session():
 load_config_to_session()
 # --- 유틸리티 함수 ---
 
-def load_headers(uploaded_file, header_row_idx=0):
-    """ 
-    (수정됨) 엑셀/CSV 파일을 읽어 헤더를 반환.
-    header_row_idx: 몇 번째 줄을 헤더로 볼 것인지 (0부터 시작)
-    """
+def load_headers(uploaded_file, header_row_idx=0, password=None):
     if uploaded_file is None: return None
+    
     try:
+        uploaded_file.seek(0) # 파일 포인터 초기화
+        
+        # 1. CSV 파일 처리
         if uploaded_file.name.lower().endswith('.csv'):
-            print("CSV 파일 감지")
-            # CSV는 보통 첫 줄이 헤더지만, 혹시 모르니 skip_rows 적용
-            # 사용자가 업로드한 파일이 csv일 경우, header_row_idx를 반영하여 헤더를 읽음, encoding은 cp949로 시도
             df = pd.read_csv(uploaded_file, encoding='cp949', header=header_row_idx, nrows=0)
+            
+        # 2. 엑셀 파일 처리
         else:
-            df = pd.read_excel(uploaded_file, header=header_row_idx, nrows=0)
-            print("Excel 파일 감지")
-        return list(df.columns)
+            target_file = uploaded_file
+            
+            # (A) 암호 해제 시도
+            if password:
+                try:
+                    decrypted_workbook = io.BytesIO()
+                    office_file = msoffcrypto.OfficeFile(uploaded_file)
+                    office_file.load_key(password=password)
+                    office_file.decrypt(decrypted_workbook)
+                    
+                    decrypted_workbook.seek(0)
+                    target_file = decrypted_workbook
+                except Exception as e:
+                    st.error("🔒 비밀번호가 틀렸습니다.")
+                    return None
+
+            # (B) 엑셀 읽기
+            try:
+                df = pd.read_excel(target_file, header=header_row_idx, nrows=0)
+            except XLRDError as e:
+                if "encrypted" in str(e):
+                    st.warning("🔒 암호화된 파일입니다. 비밀번호를 입력해주세요.")
+                    return None
+                else: raise e
+            except Exception as e:
+                if "encrypted" in str(e) or "password" in str(e).lower():
+                    st.warning("🔒 암호화된 파일입니다. 비밀번호를 입력해주세요.")
+                    return None
+                raise e
+
+        # --- [추가된 로직] "Unnamed: ..." 또는 빈 값 걸러내기 ---
+        raw_columns = list(df.columns)
+        clean_columns = [
+            col for col in raw_columns 
+            if str(col).strip() != "" and not str(col).startswith("Unnamed:")
+        ]
+
+        return clean_columns
+
     except Exception as e:
-        st.error(f"파일 헤더를 읽는 중 오류 발생: {e}")
+        st.error(f"파일을 읽는 중 오류 발생: {e}")
         return None
 
+    
 def load_data(uploaded_file, header_row_idx=0):
     """ (수정됨) header_row_idx 반영하여 데이터 읽기 """
     if uploaded_file is None: return None
@@ -376,7 +415,13 @@ with page_setup:
                 up_tmp = st.file_uploader(f"{labels[selected_tmp]} 샘플 파일 업로드", key=f"setup_{selected_tmp}")
     
                 if up_tmp:
-                    headers = load_headers(up_tmp, header_row_idx=row_idx_setup)
+                    # 1. 비밀번호 입력 받기 (엑셀일 때만 필요하겠지만, 일단 UI에 둠)
+                    file_pwd = st.text_input("파일 비밀번호 (암호가 있는 경우)", type="password", key=f"pwd_{selected_tmp}")
+    
+                     # 2. 함수 호출 시 password 전달
+                     # (비밀번호가 없으면 빈 문자열이나 None이 들어갈 텐데, 파이썬에서 if password: 로 체크하므로 괜찮음)
+                    headers = load_headers(up_tmp, header_row_idx=row_idx_setup, password=file_pwd)
+                    
                     if headers:
                         st.write("감지된 헤더:", headers)
                         if st.button("✅ 이 양식 저장", key=f"save_{selected_tmp}"):
