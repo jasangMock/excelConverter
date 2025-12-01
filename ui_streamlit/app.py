@@ -238,10 +238,13 @@ with page_run:
             
             if up_file:
                 df = load_data(up_file, header_row_idx=row_idx)
+                print("df")
+                print(df)
                 if df is not None:
                     if st.button("변환 실행"):
                         res = convert_to_rosen(df, rules)
-                        
+                        print("res")
+                        print(res)
                         # 결과 출력 (3개로 분리된 것 or 1개)
                         cols = st.columns(3)
                         idx = 0

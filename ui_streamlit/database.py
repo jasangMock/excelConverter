@@ -58,7 +58,7 @@ def save_template(name, columns_list):
 
     print(f"DB에 저장할 템플릿 이름: {name}")
     print(f"DB에 저장할 템플릿 컬럼: {columns_list}")
-    columns_json = json.dumps(columns_list,ensure_ascii=False)
+    columns_json = json.dumps(columns_list,ensure_ascii=False) #한글 깨짐 방지
     conn = get_db_conn()
     with conn:
         conn.execute(
@@ -72,7 +72,7 @@ def save_mapping(name, rules_dict):
     #mappings라는 테이블에 name과 columns_json이라는 컬럼에 매개변수로 받은 
     # name과 columns_list를 json형태로 변환한 것을 저장
     """ 매핑 규칙(딕셔너리)을 DB에 저장/덮어쓰기 합니다. """
-    rules_json = json.dumps(rules_dict)
+    rules_json = json.dumps(rules_dict, ensure_ascii=False) # 한글 깨짐 방지
     conn = get_db_conn()
     with conn:
         conn.execute(
