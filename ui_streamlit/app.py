@@ -319,28 +319,38 @@ with page_setup:
                 # 단순 매핑
                 st.write("##### 1:1 컬럼 연결")
                 current_map = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("simple_map", {})
+                #current_map은 기존에 저장된 매핑 정보
                 new_simple_map = {}
                 
                 # 타겟(로젠) 컬럼을 기준으로 소스(이카운트)를 선택
                 for t_col in tgt_cols:
                     # 고정값인 경우 스킵 가능하나, 보여주는게 명확함
-                    if t_col in ['택배운임', '운임구분']:
-                        st.text_input(f"{t_col} (고정값)", value="2900" if t_col=='택배운임' else "신용", disabled=True)
+                    if t_col in [C.ROSEN_DELIVERY_FEE_COL, C.ROSEN_FEE_TYPE_COL]:
+                        st.text_input(f"{t_col} (고정값)", value=str(C.ROSEN_SHIPPING_COST) if t_col==C.ROSEN_DELIVERY_FEE_COL else C.ROSEN_COST_TYPE, disabled=True)
                         continue
                         
-                    prev_val = current_map.get(t_col, "(선택 안 함)")
+                    prev_val = current_map.get(t_col, C.NOT_SELECTED)
+                    #prev_val은 기존에 t_col에 매핑된 값
+                    #예를 들어, t_col이 '수하인명'이고 current_map에 {'수하인명': '받는분'}이라면 prev_val은 '받는분'
+                    # 즉, 기존에 로젠 양식의 수하인 명에 매핑된 값이 받는 분이었던 것
+                    # prev_val에 값이 선택안함이라는 것은, 이전에 로젠에 수하인명 컬럼에 매핑되지 않았던 것
                     idx = 0
-                    if prev_val in ["(선택 안 함)"] + src_cols:
-                        idx = (["(선택 안 함)"] + src_cols).index(prev_val)
+                    if prev_val in [C.NOT_SELECTED] + src_cols:
+                        # 받는 분 이라는 값이 선택안함(=매핑된 적이 없었던 값)이었거나, 이카운트 소스 컬럼에 존재하는 값이라면
+                        # 그렇지 않은 경우는 어떤 경우? 이카운트 소스 컬럼이 바뀌어서 이전에 매핑된 값이 더 이상 존재하지 않는 경우
+                        idx = ([C.NOT_SELECTED] + src_cols).index(prev_val)
+                        #그 인덱스를 찾음
                     
-                    val = st.selectbox(f"로젠 [{t_col}] <== 이카운트 [?]", ["(선택 안 함)"] + src_cols, index=idx, key=f"rm_{t_col}")
+                    val = st.selectbox(f"로젠 [{t_col}] <== 이카운트 [?]", [C.NOT_SELECTED] + src_cols, index=idx, key=f"rm_{t_col}")
+                    print("val")
+                    print(val)
                     new_simple_map[t_col] = val
                 
                 st.write("##### 파일 분리 기준")
                 # 수집처 컬럼 선택
-                prev_split = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("split_col", "(선택 안 함)")
-                split_idx = (["(선택 안 함)"] + src_cols).index(prev_split) if prev_split in src_cols else 0
-                split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", ["(선택 안 함)"] + src_cols, index=split_idx)
+                prev_split = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("split_col", C.NOT_SELECTED)
+                split_idx = ([C.NOT_SELECTED] + src_cols).index(prev_split) if prev_split in src_cols else 0
+                split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", [C.NOT_SELECTED] + src_cols, index=split_idx)
 
                 if st.form_submit_button("매핑 저장"):
                     full_rule = {"simple_map": new_simple_map, "split_col": split_col}

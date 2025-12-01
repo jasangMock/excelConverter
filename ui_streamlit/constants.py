@@ -32,3 +32,8 @@ SETUP_TAB3_TITLE = "3. 일괄 양식 매칭 설정"
 # --- Default Values ---
 ROSEN_SHIPPING_COST = 2900
 ROSEN_COST_TYPE = "신용"
+
+# --- Special Values ---
+NOT_SELECTED = "(선택 안 함)"
+ROSEN_DELIVERY_FEE_COL = "택배운임"
+ROSEN_FEE_TYPE_COL = "운임구분"
