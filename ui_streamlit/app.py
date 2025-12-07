@@ -22,7 +22,9 @@ print("파이썬이 여는 DB 경로:", os.path.abspath('Excel_converter.db'))
 def load_config_to_session():
     templates, mappings = database.load_all_config_from_db()
     print("Loaded templates from DB:", templates)
+    print("")
     print("Loaded mappings from DB:", mappings)
+    print("")
     st.session_state['templates'] = templates
     st.session_state['mappings'] = mappings
 
@@ -217,7 +219,7 @@ st.title(C.MAIN_TITLE)
 
 page_run, page_setup = st.tabs([C.TAB_RUN, C.TAB_SETUP])
 
-# ########## 1. 실행 페이지 ##########
+ # ########## 1. 실행 페이지 ##########
 with page_run:
     st.sidebar.button("⚙️ 설정 새로고침", on_click=load_config_to_session)
     
@@ -227,25 +229,36 @@ with page_run:
     with tab_rosen:
         st.subheader("이카운트 ERP ➔ 로젠 송장 양식")
         
-        # 설정 확인
+        # 1. 매핑 규칙 확인
         rules = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN)
+        
+        # 2. 이카운트 템플릿 정보 확인 (여기에 줄 번호가 들어있음!)
+        # 키값("ecount")은 설정 페이지에서 저장할 때 쓴 키와 같아야 합니다.
+        tmpl_ecount = st.session_state.templates.get("ecount", {})
+        
         if not rules:
             st.error("⚠️ '설정' 탭에서 [이카운트 -> 로젠] 매핑을 먼저 해주세요.")
+        elif not tmpl_ecount:
+             st.error("⚠️ '설정' 탭에서 [이카운트] 양식을 먼저 등록해주세요.")
         else:
-            # 헤더 위치 지정 기능 추가
-            row_idx = st.number_input("데이터 파일의 제목(Header)은 몇 번째 줄인가요?", min_value=1, value=1, step=1) - 1
+            # [변경점] 사용자에게 묻지 않고 저장된 값 가져오기 (없으면 기본값 0=1번째 줄)
+            saved_row_idx = tmpl_ecount.get("header_row_idx", 0)
+            
+            # 사용자에게 안내 문구 정도는 띄워주면 친절함 (선택사항)
+            st.caption(f"ℹ️ 설정된 제목 줄 위치: {saved_row_idx + 1}번째 줄")
+
             up_file = st.file_uploader("이카운트 주문 엑셀 업로드", key="run_ecount")
             
             if up_file:
-                df = load_data(up_file, header_row_idx=row_idx)
-                print("df")
-                print(df)
+                # [변경점] 가져온 saved_row_idx를 바로 사용
+                df = load_data(up_file, header_row_idx=saved_row_idx)
+                
+                # ... (이하 기존 로직 동일) ...
+                # print("df") ...
                 if df is not None:
                     if st.button("변환 실행"):
                         res = convert_to_rosen(df, rules)
-                        print("res")
-                        print(res)
-                        # 결과 출력 (3개로 분리된 것 or 1개)
+                        
                         cols = st.columns(3)
                         idx = 0
                         for name, df_res in res.items():
@@ -265,18 +278,32 @@ with page_run:
         st.info("ℹ️ 수취인+연락처+품목+메시지가 모두 일치하는 주문을 자동으로 연결합니다.")
         
         rules_bulk = st.session_state.mappings.get(C.MAP_BULK_ECOUNT)
+        
+        # 템플릿 정보 가져오기 (이카운트 & 로젠)
+        tmpl_ecount = st.session_state.templates.get("ecount", {})
+        tmpl_rosen = st.session_state.templates.get("rosen", {})
+
         if not rules_bulk:
             st.error("⚠️ '설정' 탭에서 [일괄 양식 매핑]을 먼저 해주세요.")
+        elif not tmpl_ecount or not tmpl_rosen:
+             st.error("⚠️ '설정' 탭에서 [이카운트] 및 [로젠] 양식을 등록해주세요.")
         else:
+            # [변경점] 사용자 입력 제거 -> 저장된 값 호출
+            h1 = tmpl_ecount.get("header_row_idx", 0)
+            h2 = tmpl_rosen.get("header_row_idx", 0)
+            
+            st.caption(f"ℹ️ 설정된 제목 줄: 이카운트({h1+1}행), 송장파일({h2+1}행)")
+
             c1, c2 = st.columns(2)
             with c1:
-                h1 = st.number_input("이카운트 파일 제목 줄 번호", min_value=1, value=1, key="h1") - 1
+                # h1 입력창 삭제됨
                 up_erp = st.file_uploader("1) 이카운트 원본", key="bulk_erp")
             with c2:
-                h2 = st.number_input("송장 파일 제목 줄 번호", min_value=1, value=1, key="h2") - 1
+                # h2 입력창 삭제됨
                 up_inv = st.file_uploader("2) 로젠 내보내기(송장)", key="bulk_inv")
             
             if up_erp and up_inv:
+                # [변경점] 저장된 h1, h2 사용
                 df_e = load_data(up_erp, header_row_idx=h1)
                 df_i = load_data(up_inv, header_row_idx=h2)
                 
@@ -292,7 +319,6 @@ with page_run:
                                 file_name="ecount_bulk_upload.xlsx"
                             )
 
-
 # ########## 2. 설정 페이지 ##########
 with page_setup:
     st.warning("⚠️ 설정은 DB에 자동 저장됩니다.")
@@ -302,65 +328,94 @@ with page_setup:
     with t1:
         st.write("각 엑셀 파일의 헤더(제목) 정보를 등록합니다.")
         
+        #selected_tmp의 예시값: "ecount", "rosen" 등
         selected_tmp = st.selectbox("설정할 양식 선택", C.TEMPLATE_KEYS_IN_ORDER, format_func=lambda x: C.TEMPLATE_LABELS[x])
+
 
         # 선택된 양식에 해당하는 UI 컴포넌트를 렌더링합니다.
         if selected_tmp:
             render_template_manager(selected_tmp, C.TEMPLATE_LABELS[selected_tmp])
 
-        # --- [설정] 2. 로젠 변환 매핑 ---
+  # --- [설정] 2. 로젠 변환 매핑 ---
     with t2:
         st.subheader("이카운트 ➔ 로젠 매핑")
         
-        src_cols = st.session_state.templates.get("ecount")
-        tgt_cols = st.session_state.templates.get("rosen")
+        # 1. 템플릿 데이터(딕셔너리) 가져오기
+        src_template = st.session_state.templates.get("ecount", {})
+        tgt_template = st.session_state.templates.get("rosen", {})
         
-        if not src_cols or not tgt_cols:
+        # 2. 딕셔너리에서 'headers' 리스트만 안전하게 추출
+        # (DB에 headers가 없거나 비어있을 경우를 대비해 빈 리스트 []를 기본값으로 둠)
+        src_headers = src_template.get("headers", [])
+        tgt_headers = tgt_template.get("headers", [])
+
+        # 디버깅용 출력 (리스트가 잘 나오는지 확인)
+        print("src_headers:", src_headers)
+        print("tgt_headers:", tgt_headers)
+        print("")
+
+        # 리스트가 비어있는지 확인
+        if not src_headers or not tgt_headers:
             st.error("먼저 '1. 양식 등록'에서 이카운트와 로젠 양식을 등록해주세요.")
         else:
             with st.form("map_rosen_form"):
                 # 단순 매핑
                 st.write("##### 1:1 컬럼 연결")
                 current_map = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("simple_map", {})
-                #current_map은 기존에 저장된 매핑 정보
+                
                 new_simple_map = {}
                 
-                # 타겟(로젠) 컬럼을 기준으로 소스(이카운트)를 선택
-                for t_col in tgt_cols:
-                    # 고정값인 경우 스킵 가능하나, 보여주는게 명확함
+                # 타겟(로젠) 헤더 리스트를 루프로 돌림
+                for t_col in tgt_headers:
+                    # 고정값 처리
                     if t_col in [C.ROSEN_DELIVERY_FEE_COL, C.ROSEN_FEE_TYPE_COL]:
-                        st.text_input(f"{t_col} (고정값)", value=str(C.ROSEN_SHIPPING_COST) if t_col==C.ROSEN_DELIVERY_FEE_COL else C.ROSEN_COST_TYPE, disabled=True)
+                        st.text_input(
+                            f"{t_col} (고정값)", 
+                            value=str(C.ROSEN_SHIPPING_COST) if t_col == C.ROSEN_DELIVERY_FEE_COL else C.ROSEN_COST_TYPE, 
+                            disabled=True
+                        )
                         continue
                         
+                    # 기존 매핑 값 가져오기
                     prev_val = current_map.get(t_col, C.NOT_SELECTED)
-                    #prev_val은 기존에 t_col에 매핑된 값
-                    #예를 들어, t_col이 '수하인명'이고 current_map에 {'수하인명': '받는분'}이라면 prev_val은 '받는분'
-                    # 즉, 기존에 로젠 양식의 수하인 명에 매핑된 값이 받는 분이었던 것
-                    # prev_val에 값이 선택안함이라는 것은, 이전에 로젠에 수하인명 컬럼에 매핑되지 않았던 것
-                    idx = 0
-                    if prev_val in [C.NOT_SELECTED] + src_cols:
-                        # 받는 분 이라는 값이 선택안함(=매핑된 적이 없었던 값)이었거나, 이카운트 소스 컬럼에 존재하는 값이라면
-                        # 그렇지 않은 경우는 어떤 경우? 이카운트 소스 컬럼이 바뀌어서 이전에 매핑된 값이 더 이상 존재하지 않는 경우
-                        idx = ([C.NOT_SELECTED] + src_cols).index(prev_val)
-                        #그 인덱스를 찾음
                     
-                    val = st.selectbox(f"로젠 [{t_col}] <== 이카운트 [?]", [C.NOT_SELECTED] + src_cols, index=idx, key=f"rm_{t_col}")
-                    print("val")
-                    print(val)
-                    new_simple_map[t_col] = val
+                    idx = 0
+                    # 선택 목록 리스트 만들기 (선택안함 + 소스 헤더들)
+                    options = [C.NOT_SELECTED] + src_headers
+
+                    if prev_val in options:
+                        idx = options.index(prev_val)
+                    
+                    # 셀렉트박스 생성
+                    val = st.selectbox(
+                        f"로젠 [{t_col}] <== 이카운트 [?]", 
+                        options, 
+                        index=idx, 
+                        key=f"rm_{t_col}"
+                    )
+                    
+                    # [수정] t_col은 이미 컬럼명(문자열)이므로 바로 키로 사용
+                    new_simple_map[t_col] = val 
                 
                 st.write("##### 파일 분리 기준")
+                
                 # 수집처 컬럼 선택
                 prev_split = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("split_col", C.NOT_SELECTED)
-                split_idx = ([C.NOT_SELECTED] + src_cols).index(prev_split) if prev_split in src_cols else 0
-                split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", [C.NOT_SELECTED] + src_cols, index=split_idx)
+                
+                split_options = [C.NOT_SELECTED] + src_headers
+                split_idx = split_options.index(prev_split) if prev_split in src_headers else 0
+                
+                split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", split_options, index=split_idx)
 
                 if st.form_submit_button("매핑 저장"):
                     full_rule = {"simple_map": new_simple_map, "split_col": split_col}
+                    
+                    # DB 저장 함수 호출 (import 확인 필요)
                     database.save_mapping(C.MAP_ECOUNT_TO_ROSEN, full_rule)
+                    
+                    # 세션 상태 업데이트
                     st.session_state.mappings[C.MAP_ECOUNT_TO_ROSEN] = full_rule
                     st.success("저장 완료")
-
     # --- [설정] 3. 일괄 양식 매칭 설정 ---
     with t3:
         st.subheader("일괄 양식 생성을 위한 '식별자 매칭' 설정")

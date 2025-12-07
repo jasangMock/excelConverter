@@ -50,10 +50,17 @@ def render_template_manager(template_key, label_text):
             
             if headers:
                 st.write("감지된 헤더:", headers)
-                
                 # (5) 저장 버튼
                 if st.button("✅ 이 양식 저장", key=f"save_{template_key}"):
-                    database.save_template(template_key, headers)
-                    st.session_state.templates[template_key] = headers
-                    st.success("저장되었습니다!")
+
+# [수정 포인트] 헤더 리스트만 저장하지 말고, 줄 번호도 같이 묶어서 저장!
+                    template_data = {
+                        "headers": headers,       # 컬럼 이름들
+                        "header_row_idx": row_idx # 몇 번째 줄인지 (0, 1, 2...)
+                    }
+
+                    database.save_template(template_key,template_data)
+                  # 세션에도 동일하게 업데이트
+                    st.session_state.templates[template_key] = template_data
+                    st.success("저장되었습니다! (줄 번호 설정 포함)")
                     st.rerun()
