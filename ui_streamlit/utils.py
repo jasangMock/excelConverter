@@ -60,3 +60,56 @@ def load_headers(uploaded_file, header_row_idx=0, password=None):
     except Exception as e:
         st.error(f"파일 헤더를 읽는 중 오류 발생: {e}")
         return None
+
+def load_data_merged_header(uploaded_file, start_row_idx=1): 
+    """
+    2줄 이상으로 병합된 복잡한 헤더를 깔끔한 1줄 헤더로 변환하여 읽어옵니다.
+    - 줄바꿈 문자(\n) 제거 기능 포함
+    - 세로 병합(값이 동일) -> 하나로
+    - 계층형(값이 다름) -> 이어붙임
+    """
+    try:
+        # 1. 2줄을 헤더로 읽어옵니다.
+        df = pd.read_excel(uploaded_file, header=[start_row_idx, start_row_idx + 1])
+        
+        new_columns = []
+        
+        # 2. 멀티 인덱스 컬럼 정리
+        for col in df.columns:
+            # [수정 포인트] 값을 가져오자마자 줄바꿈(\n)부터 제거하고 공백(strip)을 정리합니다.
+            # 이렇게 해야 "No.\n" 와 "No." 가 같은 값으로 인식됩니다.
+            top_level = str(col[0]).replace('\n', '').strip() if pd.notna(col[0]) else ""
+            bottom_level = str(col[1]).replace('\n', '').strip() if pd.notna(col[1]) else ""
+            
+            # ------------------------------------------------------------------
+            # 로직 시작 (이제 깨끗한 문자열로 비교합니다)
+            # ------------------------------------------------------------------
+            
+            # [CASE 1] 세로 병합 (위/아래 텍스트가 줄바꿈 제거 후 똑같은 경우)
+            if top_level == bottom_level:
+                new_columns.append(top_level)
+
+            # [CASE 2] 일반적인 세로 병합 (아랫줄이 비어있음)
+            elif "Unnamed" in bottom_level or bottom_level == "nan" or bottom_level == "":
+                new_columns.append(top_level)
+
+            # [CASE 3] 상위 헤더가 비어있는 경우
+            elif "Unnamed" in top_level or top_level == "nan" or top_level == "":
+                new_columns.append(bottom_level)
+            
+            # [CASE 4] 진짜 계층형 헤더 (위/아래 값이 다름)
+            else:
+                clean_name = f"{top_level}_{bottom_level}"
+                new_columns.append(clean_name)
+        
+        # 3. 정리된 컬럼 적용
+        df.columns = new_columns
+        
+        # 디버깅용: 최종 컬럼 확인 (필요 시 주석 해제)
+        # print("Final Columns:", df.columns.tolist())
+        
+        return df
+
+    except Exception as e:
+        print(f"Error merging headers: {e}")
+        return None

@@ -3,15 +3,11 @@ import os
 import pandas as pd             # 엑셀 데이터를 다루는 핵심 라이브러리
 import streamlit as st          # 화면에 에러나 경고를 띄우기 위해 필요
 import io                       # 파일을 디스크에 저장하지 않고 '메모리'에서만 다루기 위한 도구
-from xlrd import XLRDError
-from utils import load_headers  # utils.py에서 load_headers 함수 가져오기
 from ui_components import render_template_manager # UI 컴포넌트 함수 가져오기
 import constants as C  # 상수 파일 가져오기
 
 # --- 0. DB 초기화 및 설정 로드 ---
 database.init_db()
-
-
 
 # 현재 파이썬이 실행되는 위치(작업 디렉토리) 출력
 print("현재 파이썬 작업 경로:", os.getcwd())
@@ -429,26 +425,66 @@ with page_setup:
         else:
             with st.form("bulk_match_form"):
                 curr_match = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {}).get("match_columns", {})
-                
+                print("")
+                print("현재 매칭 설정:", curr_match)
                 c1, c2 = st.columns(2)
                 with c1: st.write("##### 이카운트 (원본)")
                 with c2: st.write("##### 로젠 (내보내기)")
+# 1. 수취인 이름 (Name)
+                en = c1.selectbox(
+                    "수취인 이름 컬럼", 
+                    e_cols, 
+                    index=e_cols.index(curr_match.get('ecount_name')) if curr_match.get('ecount_name') in e_cols else 0,
+                    key="bulk_name_ecount"  # ✨ 키 추가
+                )
+                in_ = c2.selectbox(
+                    "수하인 이름 컬럼", 
+                    i_cols, 
+                    index=i_cols.index(curr_match.get('invoice_name')) if curr_match.get('invoice_name') in i_cols else 0,
+                    key="bulk_name_invoice" # ✨ 키 추가
+                )
 
-                # 1. 수취인 이름
-                en = c1.selectbox("수취인 이름 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_name')) if curr_match.get('ecount_name') in e_cols else 0)
-                in_ = c2.selectbox("수하인 이름 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_name')) if curr_match.get('invoice_name') in i_cols else 0)
-
-                # 2. 연락처
-                ec = c1.selectbox("연락처 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_contact')) if curr_match.get('ecount_contact') in e_cols else 0)
-                ic = c2.selectbox("연락처(휴대폰) 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_contact')) if curr_match.get('invoice_contact') in i_cols else 0)
+                # 2. 연락처 (Contact)
+                ec = c1.selectbox(
+                    "연락처 컬럼", 
+                    e_cols, 
+                    index=e_cols.index(curr_match.get('ecount_contact')) if curr_match.get('ecount_contact') in e_cols else 0,
+                    key="bulk_contact_ecount" # ✨ 키 추가
+                )
+                ic = c2.selectbox(
+                    "연락처(휴대폰) 컬럼", 
+                    i_cols, 
+                    index=i_cols.index(curr_match.get('invoice_contact')) if curr_match.get('invoice_contact') in i_cols else 0,
+                    key="bulk_contact_invoice" # ✨ 키 추가
+                )
                 
-                # 3. 품목명
-                ei = c1.selectbox("품목명 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_item')) if curr_match.get('ecount_item') in e_cols else 0)
-                ii = c2.selectbox("품목명 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_item')) if curr_match.get('invoice_item') in i_cols else 0)
+                # 3. 품목명 (Item)
+                ei = c1.selectbox(
+                    "품목명 컬럼", 
+                    e_cols, 
+                    index=e_cols.index(curr_match.get('ecount_item')) if curr_match.get('ecount_item') in e_cols else 0,
+                    key="bulk_item_ecount"    # ✨ 키 추가
+                )
+                ii = c2.selectbox(
+                    "품목명 컬럼", 
+                    i_cols, 
+                    index=i_cols.index(curr_match.get('invoice_item')) if curr_match.get('invoice_item') in i_cols else 0,
+                    key="bulk_item_invoice"   # ✨ 키 추가
+                )
 
-                # 4. 메시지
-                em = c1.selectbox("배송메시지 컬럼", e_cols, index=e_cols.index(curr_match.get('ecount_msg')) if curr_match.get('ecount_msg') in e_cols else 0)
-                im = c2.selectbox("배송메시지 컬럼", i_cols, index=i_cols.index(curr_match.get('invoice_msg')) if curr_match.get('invoice_msg') in i_cols else 0)
+                # 4. 메시지 (Message)
+                em = c1.selectbox(
+                    "배송메시지 컬럼", 
+                    e_cols, 
+                    index=e_cols.index(curr_match.get('ecount_msg')) if curr_match.get('ecount_msg') in e_cols else 0,
+                    key="bulk_msg_ecount"     # ✨ 키 추가
+                )
+                im = c2.selectbox(
+                    "배송메시지 컬럼", 
+                    i_cols, 
+                    index=i_cols.index(curr_match.get('invoice_msg')) if curr_match.get('invoice_msg') in i_cols else 0,
+                    key="bulk_msg_invoice"    # ✨ 키 추가
+                )
 
                 st.write("##### 쇼핑몰 코드 변환 규칙")
                 st.write("예: 네이버스마트스토어=00001 (한 줄에 하나씩)")

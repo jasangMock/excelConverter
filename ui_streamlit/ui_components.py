@@ -1,7 +1,6 @@
 import streamlit as st
 import database
-from utils import load_headers  # 아까 만든 load_headers 함수 가져오기
-
+from utils import load_headers, load_data_merged_header  # 아까 만든 load_headers 함수 가져오기
 def render_template_manager(template_key, label_text):
     """
     템플릿(양식) 하나를 관리하는 화면을 그리는 함수
@@ -42,25 +41,41 @@ def render_template_manager(template_key, label_text):
         uploaded_file = st.file_uploader(f"{label_text} 샘플 파일", key=f"up_{template_key}")
         
         if uploaded_file:
-            # (3) 비밀번호 입력 (필요시)
-            pwd = st.text_input("파일 비밀번호 (암호가 걸린 경우만 입력)", type="password", key=f"pwd_{template_key}")
-            
-            # (4) 헤더 분석 (utils의 함수 사용)
-            headers = load_headers(uploaded_file, header_row_idx=row_idx, password=pwd)
-            
-            if headers:
-                st.write("감지된 헤더:", headers)
-                # (5) 저장 버튼
-                if st.button("✅ 이 양식 저장", key=f"save_{template_key}"):
+                    pwd = st.text_input("파일 비밀번호", type="password", key=f"pwd_{template_key}")
+                    
+                    # -------------------------------------------------------
+                    # [수정 포인트] (4) 헤더 분석: 로젠이냐 아니냐에 따라 도구를 다르게 씀
+                    # -------------------------------------------------------
+                    headers = []
+                    
+                    # [CASE 1] 로젠 송장 (복잡한 병합 헤더)
+                    if template_key == "rosen_invoice":
+                        # 아까 만든 스마트 병합 함수 사용 (DataFrame을 반환함)
+                        # 이 함수는 내부적으로 2줄을 읽어서 1줄로 합쳐줍니다.
+                        df_temp = load_data_merged_header(uploaded_file, start_row_idx=row_idx)
+                        
+                        if df_temp is not None:
+                            headers = df_temp.columns.tolist() # DataFrame의 컬럼만 뽑아서 리스트로
+                    
+                    # [CASE 2] 이카운트 등 일반 파일 (단순 1줄 헤더)
+                    else:
+                        # 기존에 쓰던 일반 로더 사용
+                        headers = load_headers(uploaded_file, header_row_idx=row_idx, password=pwd)
 
-# [수정 포인트] 헤더 리스트만 저장하지 말고, 줄 번호도 같이 묶어서 저장!
-                    template_data = {
-                        "headers": headers,       # 컬럼 이름들
-                        "header_row_idx": row_idx # 몇 번째 줄인지 (0, 1, 2...)
-                    }
-
-                    database.save_template(template_key,template_data)
-                  # 세션에도 동일하게 업데이트
-                    st.session_state.templates[template_key] = template_data
-                    st.success("저장되었습니다! (줄 번호 설정 포함)")
-                    st.rerun()
+                    # -------------------------------------------------------
+                    
+                    if headers:
+                        st.write(f"감지된 헤더 ({len(headers)}개):", headers)
+                        
+                        # (5) 저장 버튼
+                        if st.button("✅ 이 양식 저장", key=f"save_{template_key}"):
+                            template_data = {
+                                "headers": headers,       # 깔끔하게 정리된 헤더 이름들
+                                "header_row_idx": row_idx # 시작 줄 위치
+                            }
+                            
+                            database.save_template(template_key, template_data)
+                            st.session_state.templates[template_key] = template_data
+                            
+                            st.success("저장되었습니다! (줄 번호 및 헤더 정보)")
+                            st.rerun()
