@@ -5,6 +5,8 @@ import streamlit as st          # 화면에 에러나 경고를 띄우기 위해
 import io                       # 파일을 디스크에 저장하지 않고 '메모리'에서만 다루기 위한 도구
 from ui_components import render_template_manager # UI 컴포넌트 함수 가져오기
 import constants as C  # 상수 파일 가져오기
+from utils import rules_to_dataframe, dataframe_to_rules
+
 
 # --- 0. DB 초기화 및 설정 로드 ---
 database.init_db()
@@ -412,104 +414,105 @@ with page_setup:
                     # 세션 상태 업데이트
                     st.session_state.mappings[C.MAP_ECOUNT_TO_ROSEN] = full_rule
                     st.success("저장 완료")
-    # --- [설정] 3. 일괄 양식 매칭 설정 ---
+   
+   # --- [설정] 3. 일괄 양식 매칭 설정 ---
     with t3:
         st.subheader("일괄 양식 생성을 위한 '식별자 매칭' 설정")
         st.info("두 파일을 연결하기 위해, 의미가 같은 컬럼끼리 짝지어 주세요.")
         
-        e_cols = st.session_state.templates.get("ecount")
-        i_cols = st.session_state.templates.get("rosen_invoice")
+        # 1. 세션에서 템플릿 정보(딕셔너리)를 가져옴
+        tmpl_ecount = st.session_state.templates.get("ecount", {})
+        tmpl_rosen  = st.session_state.templates.get("rosen", {}) 
+
+        # 2. 딕셔너리 안에서 'headers' 리스트만 추출
+        e_cols = tmpl_ecount.get("headers", [])
+        i_cols = tmpl_rosen.get("headers", [])
         
         if not e_cols or not i_cols:
             st.error("이카운트와 로젠 내보내기 양식을 먼저 등록해주세요.")
         else:
+            # 폼 시작
             with st.form("bulk_match_form"):
-                curr_match = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {}).get("match_columns", {})
-                print("")
-                print("현재 매칭 설정:", curr_match)
+
+
+
+        # 현재 저장된 설정 가져오기
+                saved_cfg = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {})
+                curr_match = saved_cfg.get("match_columns", {})
+                
                 c1, c2 = st.columns(2)
                 with c1: st.write("##### 이카운트 (원본)")
                 with c2: st.write("##### 로젠 (내보내기)")
-# 1. 수취인 이름 (Name)
-                en = c1.selectbox(
-                    "수취인 이름 컬럼", 
-                    e_cols, 
-                    index=e_cols.index(curr_match.get('ecount_name')) if curr_match.get('ecount_name') in e_cols else 0,
-                    key="bulk_name_ecount"  # ✨ 키 추가
-                )
-                in_ = c2.selectbox(
-                    "수하인 이름 컬럼", 
-                    i_cols, 
-                    index=i_cols.index(curr_match.get('invoice_name')) if curr_match.get('invoice_name') in i_cols else 0,
-                    key="bulk_name_invoice" # ✨ 키 추가
-                )
 
-                # 2. 연락처 (Contact)
-                ec = c1.selectbox(
-                    "연락처 컬럼", 
-                    e_cols, 
-                    index=e_cols.index(curr_match.get('ecount_contact')) if curr_match.get('ecount_contact') in e_cols else 0,
-                    key="bulk_contact_ecount" # ✨ 키 추가
-                )
-                ic = c2.selectbox(
-                    "연락처(휴대폰) 컬럼", 
-                    i_cols, 
-                    index=i_cols.index(curr_match.get('invoice_contact')) if curr_match.get('invoice_contact') in i_cols else 0,
-                    key="bulk_contact_invoice" # ✨ 키 추가
-                )
-                
-                # 3. 품목명 (Item)
-                ei = c1.selectbox(
-                    "품목명 컬럼", 
-                    e_cols, 
-                    index=e_cols.index(curr_match.get('ecount_item')) if curr_match.get('ecount_item') in e_cols else 0,
-                    key="bulk_item_ecount"    # ✨ 키 추가
-                )
-                ii = c2.selectbox(
-                    "품목명 컬럼", 
-                    i_cols, 
-                    index=i_cols.index(curr_match.get('invoice_item')) if curr_match.get('invoice_item') in i_cols else 0,
-                    key="bulk_item_invoice"   # ✨ 키 추가
-                )
+                # ---------------------------------------------------------
+                # [Refactoring] 반복문을 통한 동적 UI 생성 (DRY 원칙 적용)
+                # ---------------------------------------------------------
+                selected_values = {} # 결과를 담을 딕셔너리
 
-                # 4. 메시지 (Message)
-                em = c1.selectbox(
-                    "배송메시지 컬럼", 
-                    e_cols, 
-                    index=e_cols.index(curr_match.get('ecount_msg')) if curr_match.get('ecount_msg') in e_cols else 0,
-                    key="bulk_msg_ecount"     # ✨ 키 추가
-                )
-                im = c2.selectbox(
-                    "배송메시지 컬럼", 
-                    i_cols, 
-                    index=i_cols.index(curr_match.get('invoice_msg')) if curr_match.get('invoice_msg') in i_cols else 0,
-                    key="bulk_msg_invoice"    # ✨ 키 추가
-                )
+                for field in C.BULK_MAPPING_FIELDS:
+                            # 1. 키 자동 생성 (Convention 활용)
+                            # 예: id="item" -> e_key="ecount_item", i_key="invoice_item"
+                            e_key = f"ecount_{field.id}"
+                            i_key = f"invoice_{field.id}"
 
+                            # 2. 이카운트 (왼쪽)
+                            e_idx = e_cols.index(curr_match.get(e_key)) if curr_match.get(e_key) in e_cols else 0
+                            
+                            selected_values[e_key] = c1.selectbox(
+                                field.label_e,   # namedtuple은 .으로 접근 가능 (가독성 UP)
+                                e_cols, 
+                                index=e_idx,
+                                key=f"bulk_{field.id}_ecount" 
+                            )
+
+                            # 3. 로젠 (오른쪽)
+                            i_idx = i_cols.index(curr_match.get(i_key)) if curr_match.get(i_key) in i_cols else 0
+                            
+                            selected_values[i_key] = c2.selectbox(
+                                field.label_i, 
+                                i_cols, 
+                                index=i_idx,
+                                key=f"bulk_{field.id}_invoice"
+                            )
+
+            # 쇼핑몰 코드 변환 규칙 (Data Editor)
+            # ---------------------------------------------------------
+                st.write("---")
                 st.write("##### 쇼핑몰 코드 변환 규칙")
-                st.write("예: 네이버스마트스토어=00001 (한 줄에 하나씩)")
-                prev_rules = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {}).get("transform", {}).get("rules", {})
-                rules_str = "\n".join([f"{k}={v}" for k,v in prev_rules.items()])
-                txt_rules = st.text_area("변환 규칙 입력", value=rules_str if rules_str else "네이버스마트스토어=00001\n카카오 선물하기=00003\n쿠팡=00004")
+                st.caption("ℹ️ 이카운트 [수집처] ↔ 로젠 [쇼핑몰 코드] 매핑")
 
+                curr_rules = saved_cfg.get("transform", {}).get("rules", {})
+                df_rules = rules_to_dataframe(curr_rules, C.DEFAULT_MALL_RULES)
+
+                edited_df = st.data_editor(
+                    df_rules,
+                    column_config={
+                        "수집처명": st.column_config.TextColumn("이카운트 수집처명", required=True),
+                        "쇼핑몰코드": st.column_config.TextColumn("로젠 쇼핑몰코드", required=True),
+                    },
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_rules"
+                )
+
+                # ---------------------------------------------------------
+                # 저장 로직
+                # ---------------------------------------------------------
                 if st.form_submit_button("설정 저장"):
-                    # 규칙 파싱
-                    rule_dict = {}
-                    for line in txt_rules.split("\n"):
-                        if "=" in line:
-                            k, v = line.split("=", 1)
-                            rule_dict[k.strip()] = v.strip()
+                    # 1. 규칙 변환 (Utils 사용)
+                    rule_dict = dataframe_to_rules(edited_df)
 
+                    # 2. 전체 설정 구성
                     full_cfg = {
-                        "match_columns": {
-                            "ecount_name": en, "ecount_contact": ec, "ecount_item": ei, "ecount_msg": em,
-                            "invoice_name": in_, "invoice_contact": ic, "invoice_item": ii, "invoice_msg": im
-                        },
+                        "match_columns": selected_values, # 반복문에서 수집한 값들
                         "transform": {
-                            "source_col": "수집처", # 이카운트는 보통 '수집처' 고정이라 가정 (필요시 선택 가능하게 변경)
+                            "source_col": "수집처", 
                             "rules": rule_dict
                         }
                     }
+                    
                     database.save_mapping(C.MAP_BULK_ECOUNT, full_cfg)
                     st.session_state.mappings[C.MAP_BULK_ECOUNT] = full_cfg
-                    st.success("설정 저장 완료")
+                    st.success("매핑 설정 저장 완료!")
+                    st.rerun()

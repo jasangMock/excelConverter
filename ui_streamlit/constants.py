@@ -1,3 +1,22 @@
+from collections import namedtuple
+
+# 1. 데이터 구조 정의 (설계도)
+# id: 내부 식별자 (예: item)
+# label_e: 이카운트 쪽 표시 라벨
+# label_i: 로젠 쪽 표시 라벨
+MappingField = namedtuple("MappingField", ["id", "label_e", "label_i"])
+
+# 2. 데이터 정의 (순수 정보만 남김 -> 가독성 극대화)
+BULK_MAPPING_FIELDS = [
+    MappingField("item",           "쇼핑몰상품명 컬럼",        "품목명 컬럼"),
+    MappingField("quantity",       "수량 컬럼",                "박스수량 컬럼"),
+    MappingField("name",           "수취인 컬럼",              "수하인명 컬럼"),
+    MappingField("address",        "주소 컬럼",                "수하인주소 컬럼"),
+    MappingField("contact_tel",    "수취인 연락처1 (전화)",    "수하인전화번호 컬럼"),
+    MappingField("contact_mobile", "수취인 연락처1 (휴대폰)",  "수하인핸드폰번호 컬럼"),
+    MappingField("msg",            "배송요청사항 컬럼",        "배송메세지 컬럼"),
+]
+
 # --- Template Keys ---
 TPL_ECOUNT = "ecount"
 TPL_ROSEN = "rosen"
@@ -37,3 +56,13 @@ ROSEN_COST_TYPE = "신용"
 NOT_SELECTED = "(선택 안 함)"
 ROSEN_DELIVERY_FEE_COL = "택배운임"
 ROSEN_FEE_TYPE_COL = "운임구분"
+
+
+
+# 기본 쇼핑몰 변환 규칙 예시
+DEFAULT_MALL_RULES = [
+    {"수집처명": "네이버스마트스토어", "쇼핑몰코드": "00001"},
+    {"수집처명": "카카오 선물하기", "쇼핑몰코드": "00003"},
+    {"수집처명": "쿠팡", "쇼핑몰코드": "00004"},
+]
+

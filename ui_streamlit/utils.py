@@ -113,3 +113,24 @@ def load_data_merged_header(uploaded_file, start_row_idx=1):
     except Exception as e:
         print(f"Error merging headers: {e}")
         return None
+
+
+def rules_to_dataframe(rules_dict, default_list):
+    """딕셔너리 형태의 규칙을 DataFrame으로 변환"""
+    if rules_dict:
+        data = [{"수집처명": k, "쇼핑몰코드": v} for k, v in rules_dict.items()]
+    else:
+        data = default_list
+    return pd.DataFrame(data)
+
+def dataframe_to_rules(df):
+    """DataFrame을 저장용 딕셔너리로 변환"""
+    rule_dict = {}
+    for _, row in df.iterrows():
+        key = str(row["수집처명"]).strip()
+        val = str(row["쇼핑몰코드"]).strip()
+        
+        # 유효성 검사 (빈 값 제외)
+        if key and val and key.lower() != "none" and val.lower() != "none":
+            rule_dict[key] = val
+    return rule_dict
