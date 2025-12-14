@@ -1,11 +1,10 @@
 import database 
 import os
-import pandas as pd             # 엑셀 데이터를 다루는 핵심 라이브러리
 import streamlit as st          # 화면에 에러나 경고를 띄우기 위해 필요
-import io                       # 파일을 디스크에 저장하지 않고 '메모리'에서만 다루기 위한 도구
 from ui_components import render_template_manager # UI 컴포넌트 함수 가져오기
 import constants as C  # 상수 파일 가져오기
-from utils import rules_to_dataframe, dataframe_to_rules
+from utils import rules_to_dataframe, dataframe_to_rules, load_data  # 유틸리티 함수 임포트
+import services  # 핵심 로직이 담긴 서비스 모듈 임포트
 
 
 # --- 0. DB 초기화 및 설정 로드 ---
@@ -29,183 +28,6 @@ def load_config_to_session():
 #if 'templates' not in st.session_state:
 #    load_config_to_session()
 load_config_to_session()
-# --- 유틸리티 함수 ---
-
-    
-def load_data(uploaded_file, header_row_idx=0):
-    """ (수정됨) header_row_idx 반영하여 데이터 읽기 """
-    if uploaded_file is None: return None
-    try:
-        if uploaded_file.name.lower().endswith('.csv'):
-            try:
-                return pd.read_csv(uploaded_file, encoding='cp949', header=header_row_idx)
-            except Exception:
-                uploaded_file.seek(0)
-                return pd.read_csv(uploaded_file, encoding='utf-8-sig', header=header_row_idx)
-        else:
-            return pd.read_excel(uploaded_file, header=header_row_idx)
-    except Exception as e:
-        st.error(f"파일 데이터를 읽는 중 오류가 발생했습니다: {e}")
-        return None
-
-def to_excel_bytes(df):
-    bio = io.BytesIO()
-    with pd.ExcelWriter(bio, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    bio.seek(0)
-    return bio.getvalue()
-
-def clean_text(text):
-    """매칭을 위해 공백 제거 및 문자열 변환"""
-    return str(text).replace(" ", "").strip()
-
-# --- 1. 로젠 변환 로직 (요구사항 반영) ---
-
-def convert_to_rosen(df_data, mapping_rules):
-    """ 
-    이카운트 -> 로젠 변환 
-    (1:1 변환이므로 별도 식별자 매칭 불필요) 
-    """
-    out = pd.DataFrame()
-    
-    # 1. 사용자 설정 매핑 적용
-    # (주의: "(선택 안 함)"인 경우 빈 문자열로 처리)
-    simple_map = mapping_rules.get("simple_map", {})
-    for rosen_col, source_col in simple_map.items():
-        if source_col and source_col != "(선택 안 함)" and source_col in df_data.columns:
-            out[rosen_col] = df_data[source_col]
-        else:
-            out[rosen_col] = "" # 빈 값 처리
-
-    # 2. 상수 값을 사용하여 고정값 적용
-    out['택배운임'] = C.ROSEN_SHIPPING_COST
-    out['운임구분'] = C.ROSEN_COST_TYPE
-    
-    # 3. 특수 매핑 로직 (수취인 연락처 -> 전화번호 & 핸드폰번호 둘 다 넣기)
-    # (매핑 규칙에서 '수하인전화번호'와 '수하인핸드폰번호'가 각각 매핑되어 있다면 위 1번에서 처리됨)
-    # 만약 사용자가 매핑을 안 했을 경우를 대비해 로직을 넣을 수도 있지만, 
-    # 현재는 사용자가 '매핑 설정' 탭에서 직접 연결하는 구조를 따릅니다.
-
-    # 4. 파일 분리 (수집처 기준)
-    split_col = mapping_rules.get("split_col")
-    if split_col and split_col in df_data.columns:
-        st.info(f"'{split_col}' 컬럼을 기준으로 파일(네이버, 카카오, 쿠팡)을 분리합니다.")
-        
-        # 데이터가 없는 경우 빈 DF 반환 방지
-        df_naver = out[df_data[split_col].str.contains("네이버", na=False)]
-        df_kakao = out[df_data[split_col].str.contains("카카오", na=False)]
-        df_coupang = out[df_data[split_col].str.contains("쿠팡", na=False)]
-        
-        return {"naver": df_naver, "kakao": df_kakao, "coupang": df_coupang}
-    
-    return {"single_file": out}
-
-
-# --- 2. 일괄 양식 변환 로직 (핵심 수정: 4가지 속성 매칭) ---
-
-def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
-    """ 
-    이카운트 + 내보내기(송장) -> 일괄 양식
-    식별 로직: 수취인 + 연락처 + 품목명 + 메시지
-    """
-    
-    # --- 1. 매핑 설정에서 컬럼명 가져오기 ---
-    # (사용자가 '매핑 설정' 탭에서 지정한 컬럼명을 가져옵니다)
-    # 예: Ecount의 '수취인' 컬럼이 실제 파일에선 '받는분'일 수 있음.
-    
-    cols_cfg = mapping_rules.get("match_columns", {})
-    
-    # 이카운트 쪽 컬럼명
-    e_name = cols_cfg.get('ecount_name', '수취인')
-    e_contact = cols_cfg.get('ecount_contact', '수취인 연락처1')
-    e_item = cols_cfg.get('ecount_item', '품목명(ERP)')
-    e_msg = cols_cfg.get('ecount_msg', '배송요청사항')
-    
-    # 송장(내보내기) 쪽 컬럼명
-    i_name = cols_cfg.get('invoice_name', '수하인명')
-    i_contact = cols_cfg.get('invoice_contact', '수하인휴대폰') # 혹은 수하인전화
-    i_item = cols_cfg.get('invoice_item', '품목명')
-    i_msg = cols_cfg.get('invoice_msg', '배송메세지')
-
-    # 필수 컬럼 확인
-    missing = []
-    for c in [e_name, e_contact, e_item, e_msg]:
-        if c not in df_ecount.columns: missing.append(f"이카운트-[{c}]")
-    for c in [i_name, i_contact, i_item, i_msg]:
-        if c not in df_invoice.columns: missing.append(f"송장-[{c}]")
-    
-    if missing:
-        st.error(f"매칭에 필요한 컬럼이 파일에 없습니다: {', '.join(missing)}")
-        st.warning("팁: '설정 > 3. 매핑 설정'에서 매칭에 사용할 컬럼 이름을 정확히 지정해주세요.")
-        return None
-
-    # --- 2. 복합 키(Composite Key) 생성 ---
-    # 4가지 정보를 합쳐서 '고유 ID'를 만듭니다. (공백 제거 등 전처리 포함)
-    
-    # 이카운트 키 생성
-    df_ecount['__MATCH_KEY__'] = (
-        df_ecount[e_name].apply(clean_text) + "_" +
-        df_ecount[e_contact].apply(clean_text) + "_" +
-        df_ecount[e_item].apply(clean_text) + "_" +
-        df_ecount[e_msg].apply(clean_text)
-    )
-    
-    # 송장 키 생성
-    df_invoice['__MATCH_KEY__'] = (
-        df_invoice[i_name].apply(clean_text) + "_" +
-        df_invoice[i_contact].apply(clean_text) + "_" +
-        df_invoice[i_item].apply(clean_text) + "_" +
-        df_invoice[i_msg].apply(clean_text)
-    )
-
-    # --- 3. 병합 (Merge) ---
-    # 이카운트(원본)를 기준으로 송장 정보를 옆에 붙입니다.
-    merged = pd.merge(df_ecount, df_invoice, on='__MATCH_KEY__', how='left', suffixes=('_erp', '_inv'))
-    
-    # --- 4. 결과 데이터 생성 ---
-    out = pd.DataFrame()
-    
-    # (1) 쇼핑몰 코드 (변환 규칙 적용)
-    # 예: 수집처가 '네이버'면 '00001'
-    transform = mapping_rules.get("transform", {})
-    src_col = transform.get('source_col', '수집처') # 이카운트의 '수집처'
-    
-    if src_col in df_ecount.columns:
-        # 병합된 데이터프레임에서도 해당 컬럼을 찾음 (이름 충돌 시 _erp가 붙었을 수 있음)
-        target_col_name = src_col if src_col in merged.columns else f"{src_col}_erp"
-        
-        if target_col_name in merged.columns:
-            rules = transform.get('rules', {})
-            # 값이 없으면 원래 값 유지하거나 빈칸 (여기서는 룰에 없으면 빈칸)
-            out['쇼핑몰코드'] = merged[target_col_name].map(rules).fillna("")
-        else:
-            out['쇼핑몰코드'] = ""
-    else:
-        out['쇼핑몰코드'] = ""
-
-    # (2) 주문번호, 묶음주문번호, 배송방법코드 (이카운트에서 가져옴)
-    # 사용자가 지정한 컬럼명을 써야 하지만, 우선 요구사항의 표준 이름을 찾습니다.
-    ecount_std_cols = ['주문번호', '묶음주문번호', '배송방법코드']
-    for col in ecount_std_cols:
-        # 병합 과정에서 이름이 변경되었을 수 있으므로 확인
-        if col in merged.columns:
-            out[col] = merged[col]
-        elif f"{col}_erp" in merged.columns:
-            out[col] = merged[f"{col}_erp"]
-        else:
-            out[col] = "" # 없으면 빈 값
-
-    # (3) 송장번호 (송장 파일에서 가져옴)
-    # 송장 파일의 '운송장번호' 컬럼
-    inv_no_col = '운송장번호' # (추후 매핑 설정 가능하게 변경 가능)
-    if inv_no_col in merged.columns:
-        out['송장번호'] = merged[inv_no_col]
-    elif f"{inv_no_col}_inv" in merged.columns:
-        out['송장번호'] = merged[f"{inv_no_col}_inv"]
-    else:
-        out['송장번호'] = "" # 매칭 실패했거나 컬럼이 없으면 빈 값
-
-    return out
 
 
 # ######################################################################
@@ -249,13 +71,13 @@ with page_run:
             
             if up_file:
                 # [변경점] 가져온 saved_row_idx를 바로 사용
-                df = load_data(up_file, header_row_idx=saved_row_idx)
+                df = services.load_data(up_file, header_row_idx=saved_row_idx)
                 
                 # ... (이하 기존 로직 동일) ...
                 # print("df") ...
                 if df is not None:
                     if st.button("변환 실행"):
-                        res = convert_to_rosen(df, rules)
+                        res = services.convert_to_rosen(df, rules)
                         
                         cols = st.columns(3)
                         idx = 0
@@ -265,7 +87,7 @@ with page_run:
                                 st.dataframe(df_res.head(3), use_container_width=True)
                                 st.download_button(
                                     f"⬇️ {name}_로젠.xlsx",
-                                    data=to_excel_bytes(df_res),
+                                    data=services.to_excel_bytes(df_res),
                                     file_name=f"rosen_{name}.xlsx"
                                 )
                             idx += 1
@@ -276,6 +98,8 @@ with page_run:
         st.info("ℹ️ 수취인+연락처+품목+메시지가 모두 일치하는 주문을 자동으로 연결합니다.")
         
         rules_bulk = st.session_state.mappings.get(C.MAP_BULK_ECOUNT)
+        print("Bulk Mapping Rules:", rules_bulk)
+        print("")
         
         # 템플릿 정보 가져오기 (이카운트 & 로젠)
         tmpl_ecount = st.session_state.templates.get("ecount", {})
@@ -304,16 +128,20 @@ with page_run:
                 # [변경점] 저장된 h1, h2 사용
                 df_e = load_data(up_erp, header_row_idx=h1)
                 df_i = load_data(up_inv, header_row_idx=h2)
+
+                print("df_e columns:", df_e.columns.tolist() if df_e is not None else "df_e is None")
+                print("df_i columns:", df_i.columns.tolist() if df_i is not None else   "df_i is None")
+                print("")   
                 
                 if df_e is not None and df_i is not None:
                     if st.button("일괄 양식 생성"):
-                        final_df = convert_to_bulk_upload(df_e, df_i, rules_bulk)
+                        final_df = services.convert_to_bulk_upload(df_e, df_i, rules_bulk)
                         if final_df is not None:
                             st.success(f"✅ 생성 완료! (총 {len(final_df)}건)")
                             st.dataframe(final_df.head(), use_container_width=True)
                             st.download_button(
                                 "⬇️ 이카운트_일괄업로드.xlsx",
-                                data=to_excel_bytes(final_df),
+                                data=services.to_excel_bytes(final_df),
                                 file_name="ecount_bulk_upload.xlsx"
                             )
 

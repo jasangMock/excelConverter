@@ -6,6 +6,34 @@ import msoffcrypto              # 엑셀 암호를 해제해주는 열쇠 도구
 from xlrd import XLRDError
 
 
+def load_data(uploaded_file, header_row_idx=0):
+    """ (수정됨) header_row_idx 반영하여 데이터 읽기 """
+    if uploaded_file is None: return None
+    try:
+        if uploaded_file.name.lower().endswith('.csv'):
+            try:
+                return pd.read_csv(uploaded_file, encoding='cp949', header=header_row_idx)
+            except Exception:
+                uploaded_file.seek(0)
+                return pd.read_csv(uploaded_file, encoding='utf-8-sig', header=header_row_idx)
+        else:
+            return pd.read_excel(uploaded_file, header=header_row_idx)
+    except Exception as e:
+        st.error(f"파일 데이터를 읽는 중 오류가 발생했습니다: {e}")
+        return None
+
+def to_excel_bytes(df):
+    bio = io.BytesIO()
+    with pd.ExcelWriter(bio, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    bio.seek(0)
+    return bio.getvalue()
+
+def clean_text(text):
+    """매칭을 위해 공백 제거 및 문자열 변환"""
+    return str(text).replace(" ", "").strip()
+
+
 def load_headers(uploaded_file, header_row_idx=0, password=None):
     """
     업로드된 파일(CSV 또는 엑셀)에서 헤더(컬럼명) 목록을 읽어옵니다.
