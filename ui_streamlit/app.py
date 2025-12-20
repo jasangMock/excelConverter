@@ -3,7 +3,7 @@ import os
 import streamlit as st          # 화면에 에러나 경고를 띄우기 위해 필요
 from ui_components import render_template_manager # UI 컴포넌트 함수 가져오기
 import constants as C  # 상수 파일 가져오기
-from utils import rules_to_dataframe, dataframe_to_rules, load_data  # 유틸리티 함수 임포트
+from utils import rules_to_dataframe, dataframe_to_rules, load_data, load_data_v2,to_excel_bytes  # 유틸리티 함수 임포트
 import services  # 핵심 로직이 담긴 서비스 모듈 임포트
 
 
@@ -71,7 +71,7 @@ with page_run:
             
             if up_file:
                 # [변경점] 가져온 saved_row_idx를 바로 사용
-                df = services.load_data(up_file, header_row_idx=saved_row_idx)
+                df = load_data(up_file, header_row_idx=saved_row_idx)
                 
                 # ... (이하 기존 로직 동일) ...
                 # print("df") ...
@@ -87,7 +87,7 @@ with page_run:
                                 st.dataframe(df_res.head(3), use_container_width=True)
                                 st.download_button(
                                     f"⬇️ {name}_로젠.xlsx",
-                                    data=services.to_excel_bytes(df_res),
+                                    data=to_excel_bytes(df_res),
                                     file_name=f"rosen_{name}.xlsx"
                                 )
                             idx += 1
@@ -101,18 +101,18 @@ with page_run:
         print("Bulk Mapping Rules:", rules_bulk)
         print("")
         
-        # 템플릿 정보 가져오기 (이카운트 & 로젠)
+        # 템플릿 정보 가져오기 (이카운트 & 로젠 내보내기)
         tmpl_ecount = st.session_state.templates.get("ecount", {})
-        tmpl_rosen = st.session_state.templates.get("rosen", {})
+        tmpl_rosen_invoice = st.session_state.templates.get("rosen_invoice", {})
 
         if not rules_bulk:
             st.error("⚠️ '설정' 탭에서 [일괄 양식 매핑]을 먼저 해주세요.")
-        elif not tmpl_ecount or not tmpl_rosen:
-             st.error("⚠️ '설정' 탭에서 [이카운트] 및 [로젠] 양식을 등록해주세요.")
+        elif not tmpl_ecount or not tmpl_rosen_invoice:
+             st.error("⚠️ '설정' 탭에서 [이카운트] 및 [로젠 내보내기] 양식을 등록해주세요.")
         else:
             # [변경점] 사용자 입력 제거 -> 저장된 값 호출
             h1 = tmpl_ecount.get("header_row_idx", 0)
-            h2 = tmpl_rosen.get("header_row_idx", 0)
+            h2 = tmpl_rosen_invoice.get("header_row_idx", 0)
             
             st.caption(f"ℹ️ 설정된 제목 줄: 이카운트({h1+1}행), 송장파일({h2+1}행)")
 
@@ -127,7 +127,7 @@ with page_run:
             if up_erp and up_inv:
                 # [변경점] 저장된 h1, h2 사용
                 df_e = load_data(up_erp, header_row_idx=h1)
-                df_i = load_data(up_inv, header_row_idx=h2)
+                df_i = load_data_v2(up_inv, is_merged=True) # 여기에서 문제가 발생하는지 확인 필요
 
                 print("df_e columns:", df_e.columns.tolist() if df_e is not None else "df_e is None")
                 print("df_i columns:", df_i.columns.tolist() if df_i is not None else   "df_i is None")
@@ -141,7 +141,7 @@ with page_run:
                             st.dataframe(final_df.head(), use_container_width=True)
                             st.download_button(
                                 "⬇️ 이카운트_일괄업로드.xlsx",
-                                data=services.to_excel_bytes(final_df),
+                                data=to_excel_bytes(final_df),
                                 file_name="ecount_bulk_upload.xlsx"
                             )
 
@@ -250,11 +250,11 @@ with page_setup:
         
         # 1. 세션에서 템플릿 정보(딕셔너리)를 가져옴
         tmpl_ecount = st.session_state.templates.get("ecount", {})
-        tmpl_rosen  = st.session_state.templates.get("rosen", {}) 
+        tmpl_rosen_invoice  = st.session_state.templates.get("rosen_invoice", {}) 
 
         # 2. 딕셔너리 안에서 'headers' 리스트만 추출
         e_cols = tmpl_ecount.get("headers", [])
-        i_cols = tmpl_rosen.get("headers", [])
+        i_cols = tmpl_rosen_invoice.get("headers", [])
         
         if not e_cols or not i_cols:
             st.error("이카운트와 로젠 내보내기 양식을 먼저 등록해주세요.")
@@ -262,12 +262,10 @@ with page_setup:
             # 폼 시작
             with st.form("bulk_match_form"):
 
-
-
         # 현재 저장된 설정 가져오기
                 saved_cfg = st.session_state.mappings.get(C.MAP_BULK_ECOUNT, {})
                 curr_match = saved_cfg.get("match_columns", {})
-                
+        #match_columns은, 식별자가될 각각의 속성들의 매핑 정보가 담긴 딕셔너리                
                 c1, c2 = st.columns(2)
                 with c1: st.write("##### 이카운트 (원본)")
                 with c2: st.write("##### 로젠 (내보내기)")
@@ -276,7 +274,7 @@ with page_setup:
                 # [Refactoring] 반복문을 통한 동적 UI 생성 (DRY 원칙 적용)
                 # ---------------------------------------------------------
                 selected_values = {} # 결과를 담을 딕셔너리
-
+                #BULK_MAPPING_FIELDS는, 생성될ㄹ 이카운트 일괄양식의 헤더(속성) 목록
                 for field in C.BULK_MAPPING_FIELDS:
                             # 1. 키 자동 생성 (Convention 활용)
                             # 예: id="item" -> e_key="ecount_item", i_key="invoice_item"
@@ -302,6 +300,7 @@ with page_setup:
                                 index=i_idx,
                                 key=f"bulk_{field.id}_invoice"
                             )
+
 
             # 쇼핑몰 코드 변환 규칙 (Data Editor)
             # ---------------------------------------------------------

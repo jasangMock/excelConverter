@@ -12,7 +12,6 @@ BULK_MAPPING_FIELDS = [
     MappingField("quantity",       "수량 컬럼",                "박스수량 컬럼"),
     MappingField("name",           "수취인 컬럼",              "수하인명 컬럼"),
     MappingField("address",        "주소 컬럼",                "수하인주소 컬럼"),
-    MappingField("contact_tel",    "수취인 연락처1 (전화)",    "수하인전화번호 컬럼"),
     MappingField("contact_mobile", "수취인 연락처1 (휴대폰)",  "수하인핸드폰번호 컬럼"),
     MappingField("msg",            "배송요청사항 컬럼",        "배송메세지 컬럼"),
 ]

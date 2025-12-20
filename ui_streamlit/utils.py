@@ -6,6 +6,60 @@ import msoffcrypto              # 엑셀 암호를 해제해주는 열쇠 도구
 from xlrd import XLRDError
 
 
+def load_data_v2(uploaded_file, is_merged=False):
+    if uploaded_file is None: return None
+    
+    try:
+        # 일단 헤더 없이 전체를 읽어옵니다.
+        raw_df = pd.read_excel(uploaded_file, header=None)
+        
+        # 🔍 진짜 제목 줄(Index) 찾기 로직
+        header_row_idx = 0
+        target_keywords = ['수하인', '운송장번호', '물품명', '이름']
+        
+        for idx, row in raw_df.iterrows():
+            # 줄 내의 모든 값을 문자열로 합쳐서 키워드가 있는지 확인
+            row_str = " ".join(row.astype(str))
+            if any(key in row_str for key in target_keywords):
+                header_row_idx = idx
+                break
+        
+        st.info(f"💡 시스템이 분석한 제목 줄 위치: {header_row_idx + 1}행")
+
+        if is_merged:
+            # 찾은 위치(header_row_idx)부터 2줄을 헤더로 처리
+            header_part = raw_df.iloc[header_row_idx : header_row_idx + 2]
+            
+            new_cols = []
+            for i in range(len(raw_df.columns)):
+                top = str(header_part.iloc[0, i]).replace('\n', '').strip() if pd.notna(header_part.iloc[0, i]) else ""
+                bot = str(header_part.iloc[1, i]).replace('\n', '').strip() if pd.notna(header_part.iloc[1, i]) else ""
+                
+                # Unnamed 처리
+                top = "" if "Unnamed" in top or top == "nan" else top
+                bot = "" if "Unnamed" in bot or bot == "nan" else bot
+                
+                if top == bot or not bot: new_cols.append(top if top else f"Col_{i}")
+                elif not top: new_cols.append(bot)
+                else: new_cols.append(f"{top}_{bot}")
+
+            # 헤더 2줄 다음부터 데이터로 슬라이싱
+            df = raw_df.iloc[header_row_idx + 2 :].copy()
+            df.columns = new_cols
+        else:
+            # 병합 셀이 아닌 경우 찾은 줄 하나만 헤더로 사용
+            df = raw_df.iloc[header_row_idx + 1 :].copy()
+            df.columns = raw_df.iloc[header_row_idx]
+
+        # 데이터 정리: 모든 값이 비어있는 행 제거
+        df = df.dropna(how='all').reset_index(drop=True)
+        return df
+
+    except Exception as e:
+        st.error(f"지능형 로드 중 오류 발생: {e}")
+        return None
+
+
 def load_data(uploaded_file, header_row_idx=0):
     """ (수정됨) header_row_idx 반영하여 데이터 읽기 """
     if uploaded_file is None: return None
@@ -32,6 +86,14 @@ def to_excel_bytes(df):
 def clean_text(text):
     """매칭을 위해 공백 제거 및 문자열 변환"""
     return str(text).replace(" ", "").strip()
+
+# 수량 데이터를 깨끗하게 처리하는 헬퍼 함수
+def clean_qty(val):
+    try:
+        # 1.0 같은 값을 1로 변환한 뒤 문자열로 반환
+        return str(int(float(val)))
+    except:
+        return str(val)
 
 
 def load_headers(uploaded_file, header_row_idx=0, password=None):
