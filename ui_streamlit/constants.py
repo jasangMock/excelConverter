@@ -1,20 +1,5 @@
 from collections import namedtuple
-
-# 1. 데이터 구조 정의 (설계도)
-# id: 내부 식별자 (예: item)
-# label_e: 이카운트 쪽 표시 라벨
-# label_i: 로젠 쪽 표시 라벨
-MappingField = namedtuple("MappingField", ["id", "label_e", "label_i"])
-
-# 2. 데이터 정의 (순수 정보만 남김 -> 가독성 극대화)
-BULK_MAPPING_FIELDS = [
-    MappingField("item",           "쇼핑몰상품명 컬럼",        "품목명 컬럼"),
-    MappingField("quantity",       "수량 컬럼",                "박스수량 컬럼"),
-    MappingField("name",           "수취인 컬럼",              "수하인명 컬럼"),
-    MappingField("address",        "주소 컬럼",                "수하인주소 컬럼"),
-    MappingField("contact_mobile", "수취인 연락처1 (휴대폰)",  "수하인핸드폰번호 컬럼"),
-    MappingField("msg",            "배송요청사항 컬럼",        "배송메세지 컬럼"),
-]
+import streamlit as st
 
 # --- Template Keys ---
 TPL_ECOUNT = "ecount"
@@ -65,3 +50,55 @@ DEFAULT_MALL_RULES = [
     {"수집처명": "쿠팡", "쇼핑몰코드": "00004"},
 ]
 
+# 1. 데이터 구조 정의 (설계도)
+# id: 내부 식별자 (예: item)
+# label_e: 이카운트 쪽 표시 라벨
+# label_i: 로젠 쪽 표시 라벨
+MappingField = namedtuple("MappingField", ["id", "label_e", "label_i"])
+
+def get_bulk_mapping_fields():
+# 1. 'mappings' 세션 키가 있는지 먼저 확인
+    all_mappings = st.session_state.get('mappings', {})
+    
+    # 2. 그 안에서 'bulk_ecount' 데이터를 꺼냄 (MAP_BULK_ECOUNT == "bulk_ecount")
+    mapping_data = all_mappings.get(MAP_BULK_ECOUNT, {})
+    
+    # 3. 그 안에서 다시 'match_columns'를 꺼냄
+    match_cols = mapping_data.get("match_columns", {})
+
+    print("Target Mapping Data:", mapping_data) # 이제 데이터가 출력될 것입니다.
+
+    # 2. MappingField 리스트를 동적으로 생성합니다.
+    # key 값이 없을 경우를 대비해 기본값(NOT_SELECTED)을 설정합니다.
+    return [
+        MappingField(
+            "item", 
+            match_cols.get("ecount_item", NOT_SELECTED), 
+            match_cols.get("invoice_item", NOT_SELECTED)
+        ),
+        MappingField(
+            "quantity", 
+            match_cols.get("ecount_quantity", NOT_SELECTED), 
+            match_cols.get("invoice_quantity", NOT_SELECTED) # JSON의 오타(invoie) 주의
+        ),
+        MappingField(
+            "name", 
+            match_cols.get("ecount_name", NOT_SELECTED), 
+            match_cols.get("invoice_name", NOT_SELECTED)
+        ),
+        MappingField(
+            "address", 
+            match_cols.get("ecount_address", NOT_SELECTED), 
+            match_cols.get("invoice_address", NOT_SELECTED)
+        ),
+        MappingField(
+            "contact_mobile", 
+            match_cols.get("ecount_contact_mobile", NOT_SELECTED), 
+            match_cols.get("invoice_contact_mobile", NOT_SELECTED)
+        ),
+        MappingField(
+            "msg", 
+            match_cols.get("ecount_msg", NOT_SELECTED), 
+            match_cols.get("invoice_msg", NOT_SELECTED)
+        ),
+    ]

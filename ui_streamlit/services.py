@@ -36,7 +36,7 @@ def convert_to_rosen(df_data, mapping_rules):
     if split_col and split_col in df_data.columns:
         st.info(f"'{split_col}' 컬럼을 기준으로 파일(네이버, 카카오, 쿠팡)을 분리합니다.")
         
-        df_naver = out[df_data[split_col].str.contains("네이버", na=False)]
+        df_naver = out[df_data[split_col].str.contains("스마트스토어", na=False)]
         df_kakao = out[df_data[split_col].str.contains("카카오", na=False)]
         df_coupang = out[df_data[split_col].str.contains("쿠팡", na=False)]
         

@@ -274,8 +274,11 @@ with page_setup:
                 # [Refactoring] 반복문을 통한 동적 UI 생성 (DRY 원칙 적용)
                 # ---------------------------------------------------------
                 selected_values = {} # 결과를 담을 딕셔너리
-                #BULK_MAPPING_FIELDS는, 생성될ㄹ 이카운트 일괄양식의 헤더(속성) 목록
-                for field in C.BULK_MAPPING_FIELDS:
+                #BULK_MAPPING_FIELDS는, 생성될 이카운트 일괄양식의 헤더(속성) 목록
+                bulk_mapping_fields = C.get_bulk_mapping_fields()   
+                print()
+
+                for field in bulk_mapping_fields:
                             # 1. 키 자동 생성 (Convention 활용)
                             # 예: id="item" -> e_key="ecount_item", i_key="invoice_item"
                             e_key = f"ecount_{field.id}"
