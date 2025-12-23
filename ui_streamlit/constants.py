@@ -4,6 +4,9 @@ import streamlit as st
 # --- Template Keys ---
 TPL_ECOUNT = "ecount"
 TPL_ROSEN = "rosen"
+TPL_NAVER = "naver"
+TPL_KAKAO = "kakao"
+TPL_COUPANG = "coupang"
 TPL_ROSEN_INVOICE = "rosen_invoice"
 TPL_ECOUNT_BULK = "ecount_bulk"
 
@@ -11,15 +14,28 @@ TPL_ECOUNT_BULK = "ecount_bulk"
 TEMPLATE_LABELS = {
     TPL_ECOUNT: "이카운트 주문서",
     TPL_ROSEN: "로젠 송장 양식 (변환용)",
+    TPL_NAVER: "네이버 스마트스토어 양식",
+    TPL_KAKAO: "카카오 선물하기 양식",
+    TPL_COUPANG: "쿠팡 양식",
     TPL_ROSEN_INVOICE: "로젠 내보내기 양식 (송장번호 포함)",
     TPL_ECOUNT_BULK: "이카운트 일괄 양식 (최종 결과물)"
 }
 
-TEMPLATE_KEYS_IN_ORDER = [TPL_ECOUNT, TPL_ROSEN, TPL_ROSEN_INVOICE, TPL_ECOUNT_BULK]
+TEMPLATE_KEYS_IN_ORDER = [TPL_ECOUNT, TPL_ROSEN, TPL_NAVER, TPL_KAKAO, TPL_COUPANG,TPL_ROSEN_INVOICE, TPL_ECOUNT_BULK]
+
+
+# Mall Types
+MALL_NAVER = "naver"
+MALL_KAKAO = "kakao"
+MALL_COUPANG = "coupang"
+
 
 # --- Mapping Keys ---
 MAP_ECOUNT_TO_ROSEN = "ecount_to_rosen"
 MAP_BULK_ECOUNT = "bulk_ecount"
+MAP_NAVER_TO_ROSEN = "naver_to_rosen"
+MAP_KAKAO_TO_ROSEN = "kakao_to_rosen"
+MAP_COUPANG_TO_ROSEN = "coupang_to_rosen"
 
 # --- UI Texts ---
 PAGE_TITLE = "excelConverter Final"
@@ -29,8 +45,9 @@ TAB_RUN = "실행 (매일 작업)"
 TAB_SETUP = "설정 (최초 1회)"
 
 SETUP_TAB1_TITLE = "1. 양식 등록"
-SETUP_TAB2_TITLE = "2. 로젠 변환 매핑"
-SETUP_TAB3_TITLE = "3. 일괄 양식 매칭 설정"
+SETUP_TAB2_TITLE = "2. 이카운트 -> 로젠 변환 매핑"
+SETUP_TAB3_TITLE = "3. 네이버 -> 로젠 변환 매핑"
+SETUP_TAB4_TITLE = "4. 일괄 양식 매칭 설정"
 
 # --- Default Values ---
 ROSEN_SHIPPING_COST = 2900

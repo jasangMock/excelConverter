@@ -148,7 +148,7 @@ with page_run:
 # ########## 2. 설정 페이지 ##########
 with page_setup:
     st.warning("⚠️ 설정은 DB에 자동 저장됩니다.")
-    t1, t2, t3 = st.tabs([C.SETUP_TAB1_TITLE, C.SETUP_TAB2_TITLE, C.SETUP_TAB3_TITLE])
+    t1, t2, t3,t4 = st.tabs([C.SETUP_TAB1_TITLE, C.SETUP_TAB2_TITLE, C.SETUP_TAB3_TITLE, C.SETUP_TAB4_TITLE])
 
     # --- [설정] 1. 양식 등록 ---
     with t1:
@@ -242,9 +242,67 @@ with page_setup:
                     # 세션 상태 업데이트
                     st.session_state.mappings[C.MAP_ECOUNT_TO_ROSEN] = full_rule
                     st.success("저장 완료")
-   
-   # --- [설정] 3. 일괄 양식 매칭 설정 ---
-    with t3:
+
+    # --- [설정] 3. 네이버 ➔ 로젠 변환 매핑 ---
+    with t3: # t3는 새로운 탭(Tab) 객체
+        st.subheader("네이버 ➔ 로젠 매핑")
+        
+        # 1. 데이터 가져오기 (네이버 양식과 로젠 양식)
+        src_template = st.session_state.templates.get(C.MALL_NAVER, {})
+        tgt_template = st.session_state.templates.get("rosen", {})
+        
+        src_headers = src_template.get("headers", [])
+        tgt_headers = tgt_template.get("headers", [])
+
+        if not src_headers or not tgt_headers:
+            st.error("먼저 '양식 등록'에서 [네이버]와 [로젠] 양식을 모두 등록해주세요.")
+        else:
+            with st.form("map_naver_form"):
+                st.write("##### 1:1 컬럼 연결 (Naver -> Rosen)")
+                
+                # 기존 저장된 매핑 불러오기
+                current_map = st.session_state.mappings.get(C.MAP_NAVER_TO_ROSEN, {}).get("simple_map", {})
+                new_simple_map = {}
+                
+                # 추천 매핑 (자동 매칭 로직)
+                auto_suggestion = {
+                    "수하인명": "수취인명",
+                    "수하인주소": "통합배송지",
+                    "수하인전화번호": "수취인연락처1",
+                    "품목명": "상품명",
+                    "배송메세지": "배송메세지"
+                }
+
+                for t_col in tgt_headers:
+                    # 고정값 처리 (택배비 등)
+                    if t_col in [C.ROSEN_DELIVERY_FEE_COL, C.ROSEN_FEE_TYPE_COL]:
+                        st.text_input(f"{t_col} (고정값)", value="...", disabled=True)
+                        continue
+
+                    # 기본값 결정 순서: 1. 기존 저장값 -> 2. 추천 매칭값 -> 3. 선택안함
+                    prev_val = current_map.get(t_col)
+                    if not prev_val:
+                        prev_val = auto_suggestion.get(t_col, C.NOT_SELECTED)
+                    
+                    options = [C.NOT_SELECTED] + src_headers
+                    idx = options.index(prev_val) if prev_val in options else 0
+                    
+                    val = st.selectbox(
+                        f"로젠 [{t_col}] <== 네이버 [?]",
+                        options,
+                        index=idx,
+                        key=f"naver_{t_col}"
+                    )
+                    new_simple_map[t_col] = val
+
+                if st.form_submit_button("네이버 매핑 저장"):
+                    full_rule = {"simple_map": new_simple_map}
+                    database.save_mapping(C.MAP_NAVER_TO_ROSEN, full_rule)
+                    st.session_state.mappings[C.MAP_NAVER_TO_ROSEN] = full_rule
+                    st.success("네이버 매핑 정보가 저장되었습니다.")
+
+   # --- [설정] 4. 일괄 양식 매칭 설정 ---
+    with t4:
         st.subheader("일괄 양식 생성을 위한 '식별자 매칭' 설정")
         st.info("두 파일을 연결하기 위해, 의미가 같은 컬럼끼리 짝지어 주세요.")
         
