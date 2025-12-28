@@ -231,3 +231,9 @@ def dataframe_to_rules(df):
         if key and val and key.lower() != "none" and val.lower() != "none":
             rule_dict[key] = val
     return rule_dict
+
+
+# 1. 파일 업로더 (on_change를 사용하여 파일이 바뀌면 세션 삭제)
+def reset_conversion():
+    if "conversion_result" in st.session_state:
+        del st.session_state.conversion_result

@@ -3,7 +3,7 @@ import os
 import streamlit as st          # 화면에 에러나 경고를 띄우기 위해 필요
 from ui_components import render_template_manager # UI 컴포넌트 함수 가져오기
 import constants as C  # 상수 파일 가져오기
-from utils import rules_to_dataframe, dataframe_to_rules, load_data, load_data_v2,to_excel_bytes  # 유틸리티 함수 임포트
+from utils import reset_conversion, rules_to_dataframe, dataframe_to_rules, load_data, load_data_v2,to_excel_bytes  # 유틸리티 함수 임포트
 import services  # 핵심 로직이 담긴 서비스 모듈 임포트
 
 
@@ -66,25 +66,37 @@ with page_run:
             
             # 사용자에게 안내 문구 정도는 띄워주면 친절함 (선택사항)
             st.caption(f"ℹ️ 설정된 제목 줄 위치: {saved_row_idx + 1}번째 줄")
-            
-            up_file = st.file_uploader("이카운트 주문 엑셀 업로드", key="run_ecount")
+
+            up_file = st.file_uploader(
+                    "이카운트 주문 엑셀 업로드", 
+                    key="run_ecount", 
+                    on_change=reset_conversion  # 파일이 바뀌면 자동으로 이전 결과 삭제
+                )
+                # 1. 파일 업로더 (on_change를 사용하여 파일이 바뀌면 세션 삭제)
 
             if up_file:
-                # saved_row_idx를 사용하여 이카운트 데이터 로드
                 df = load_data(up_file, header_row_idx=saved_row_idx)
                 
                 if df is not None:
+                    # 2. 변환 실행 버튼
                     if st.button("변환 실행"):
-                        res = services.convert_to_rosen(df, rules)
+                        # 변환 로직 실행 및 세션 저장
+                        st.session_state.conversion_result = services.convert_to_rosen(df, rules)
+                        st.success("새로운 변환이 완료되었습니다.")
+
+                    # 3. 결과 표시 (세션에 있을 때만)
+                    if "conversion_result" in st.session_state:
+                        res = st.session_state.conversion_result
+                        
+                        # (중요) 만약 파일 내용과 세션 결과가 맞지 않는 상황을 방지하고 싶다면
+                        # 여기에 추가적인 체크 로직을 넣을 수도 있습니다.
                         
                         cols = st.columns(3)
-                        idx = 0
-                        for name, df_res in res.items():
+                        for idx, (name, df_res) in enumerate(res.items()):
                             with cols[idx % 3]:
                                 st.success(f"✅ {name} ({len(df_res)}건)")
                                 
-                                # --- [추가] 중복 헤더 에러 방지 로직 ---
-                                # st.dataframe 출력을 위해 컬럼명을 고유하게 만듭니다.
+                                # 헤더 중복 처리 로직 (display_df)
                                 display_df = df_res.copy()
                                 new_cols = []
                                 seen = {}
@@ -97,18 +109,16 @@ with page_run:
                                         seen[base] = 0
                                         new_cols.append(base)
                                 display_df.columns = new_cols
-                                # ---------------------------------------
-
-                                # 중복이 제거된 display_df로 출력 (88번 라인 대응)
+                                
                                 st.dataframe(display_df.head(3), use_container_width=True)
                                 
-                                # 다운로드는 원본 df_res를 사용하여 빈 헤더를 유지
                                 st.download_button(
                                     f"⬇️ {name}_로젠.xlsx",
                                     data=to_excel_bytes(df_res),
-                                    file_name=f"rosen_{name}.xlsx"
+                                    file_name=f"rosen_{name}.xlsx",
+                                    key=f"dl_btn_{name}_{idx}" # 인덱스 추가로 키 중복 방지
                                 )
-                            idx += 1
+                                idx += 1
 
     # --- [실행] 일괄 양식 생성 ---
     with tab_bulk:
