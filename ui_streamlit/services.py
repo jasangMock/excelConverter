@@ -100,6 +100,8 @@ def convert_to_rosen(df_data, mapping_rules):
     return {"single_file": out}
 
 def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
+
+
     # --- 1. 유틸리티 함수 정의 ---
     def get_merged_col(df, col_base, suffix="_erp"):
         """merged DF에서 원본 또는 접미사가 붙은 컬럼을 안전하게 가져옴"""
@@ -176,6 +178,7 @@ def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
 
     # 송장번호 추출
     inv_col = get_merged_col(merged, '운송장번호', suffix="_inv")
+    print("inv_col:", inv_col)
     out['송장번호'] = format_numeric_str(merged[inv_col]) if inv_col else ""
 
     return out
