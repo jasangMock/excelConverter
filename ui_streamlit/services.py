@@ -9,11 +9,9 @@ import utils as U
 
 
 # --- 핵심 비즈니스 로직 ---
-
-
 def convert_to_rosen(df_data, mapping_rules):
     """ 
-    이카운트 -> 로젠 변환 (리스트 매핑 구조 반영)
+    이카운트 -> 로젠 변환 (리스트 매핑 구조 + 합포장 텍스트 강조)
     """
     # 1. simple_map 리스트 가져오기
     simple_map_list = mapping_rules.get("simple_map", [])
@@ -22,13 +20,19 @@ def convert_to_rosen(df_data, mapping_rules):
         st.warning("매핑 설정 정보가 없습니다.")
         return {"single_file": pd.DataFrame()}
 
+    # [중요] 이카운트 파일에서 '수량'을 나타내는 컬럼명을 찾습니다.
+    # 보통 "수량"이지만, 사용자가 올린 파일에 따라 다를 수 있으니 확인이 필요합니다.
+    qty_col_name = "수량"  # 기본값
+    if "수량(소단위)" in df_data.columns: # 이카운트 변형 케이스 대비
+        qty_col_name = "수량(소단위)"
+
     output_columns = []
     output_series_list = []
 
     # 2. 매핑 리스트를 순서대로 순회하며 컬럼 생성
     for rule in simple_map_list:
-        target_col = rule.get("target", "")  # 로젠의 컬럼명 (비어있을 수 있음)
-        source_col = rule.get("source", "")  # 이카운트의 컬럼명 (또는 특수 값)
+        target_col = rule.get("target", "")  # 로젠(타겟) 컬럼명
+        source_col = rule.get("source", "")  # 이카운트(소스) 컬럼명
 
         # (A) 고정값 처리
         if source_col == "__FIXED_VALUE__":
@@ -42,7 +46,32 @@ def convert_to_rosen(df_data, mapping_rules):
 
         # (B) 이카운트 컬럼 매핑 처리
         elif source_col and source_col != C.NOT_SELECTED and source_col in df_data.columns:
-            col_data = df_data[source_col]
+            # 데이터를 복사해서 가져옵니다.
+            #col_data = df_data[source_col].astype(str).copy()
+            # (1) NaN 값을 빈 값("")으로 채우기
+            col_data = df_data[source_col].fillna("")
+            
+            # (2) 문자로 변환 후, 끝이 .0으로 끝나는 숫자 형태 제거 (2.0 -> 2)
+            # regex=True는 정규표현식을 쓴다는 뜻입니다.
+            col_data = col_data.astype(str).replace(r'\.0$', '', regex=True)
+            
+            # (3) 혹시라도 "nan"이라는 글자로 변한 게 있다면 빈 값으로 치환
+            col_data = col_data.replace('nan', '')
+            
+            # ---------------------------------------------------------------
+            # [수정된 로직] 품목명이고, 수량이 1보다 크면 접두어(★) 추가
+            # ---------------------------------------------------------------
+            if target_col == "품목명" and qty_col_name in df_data.columns:
+                # 수량 컬럼을 숫자로 변환 (에러 발생 시 1로 취급)
+                qtys = pd.to_numeric(df_data[qty_col_name], errors='coerce').fillna(1)
+                
+                # 수량이 1보다 큰 행의 인덱스(True/False)를 찾음
+                mask = qtys > 1
+                
+                # 해당 행들에 대해서만 품목명 앞에 "★[N개]" 붙이기
+                # 예: "막걸리" -> "★[2개] 막걸리"
+                col_data.loc[mask] = "★[" + qtys.loc[mask].astype(int).astype(str) + "개] " + col_data.loc[mask]
+            # ---------------------------------------------------------------
         
         # (C) 매핑되지 않았거나 빈 헤더인 경우
         else:
@@ -51,17 +80,13 @@ def convert_to_rosen(df_data, mapping_rules):
         output_columns.append(target_col)
         output_series_list.append(col_data)
 
-    # 3. 모든 시리즈를 가로로 합쳐서 DataFrame 생성
-    # axis=1로 합치면 리스트의 순서가 곧 엑셀의 컬럼 순서가 됩니다.
+    # 3. DataFrame 생성 (중복/빈 헤더 허용)
     out = pd.concat(output_series_list, axis=1)
-    out.columns = output_columns  # 최종 헤더 설정 (빈 문자열 포함)
+    out.columns = output_columns 
 
     # 4. 파일 분리 (수집처 기준)
     split_col = mapping_rules.get("split_col")
     if split_col and split_col in df_data.columns:
-        # 가독성을 위해 info 메시지는 한 번만 출력
-        # 원본 데이터(df_data)의 인덱스를 기준으로 out에서 필터링합니다.
-        
         mask_naver = df_data[split_col].str.contains("스마트스토어", na=False)
         mask_kakao = df_data[split_col].str.contains("카카오", na=False)
         mask_coupang = df_data[split_col].str.contains("쿠팡", na=False)
@@ -73,7 +98,6 @@ def convert_to_rosen(df_data, mapping_rules):
         }
     
     return {"single_file": out}
-
 
 def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
     # --- 1. 유틸리티 함수 정의 ---
