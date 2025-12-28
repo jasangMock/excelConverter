@@ -142,10 +142,17 @@ def load_headers(uploaded_file, header_row_idx=0, password=None):
                     st.warning("🔒 암호화된 파일입니다. 비밀번호를 입력해주세요.")
                     return None
                 raise e
-
-        # "Unnamed: ..." 또는 빈 컬럼 필터링
+        # [수정 부분] 필터링을 제거하고 모든 컬럼을 가져옵니다.
+        # 'Unnamed: 1' 처럼 나오는 값들을 실제 빈 문자열("")로 치환하여 반환할 수 있습니다.
         raw_columns = list(df.columns)
-        return [col for col in raw_columns if str(col).strip() and not str(col).startswith("Unnamed:")]
+
+# 'Unnamed'로 시작하는 컬럼은 실제 엑셀에서 헤더가 비어있는 칸입니다.
+        # 이를 빈 문자열로 바꾸어 리턴하여 매핑 설정 시에도 보이게 합니다.
+        processed_columns = [
+            "" if str(col).startswith("Unnamed:") else str(col) 
+            for col in raw_columns
+        ]
+        return processed_columns
 
     except Exception as e:
         st.error(f"파일 헤더를 읽는 중 오류 발생: {e}")

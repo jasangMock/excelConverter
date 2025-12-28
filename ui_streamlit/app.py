@@ -66,15 +66,13 @@ with page_run:
             
             # 사용자에게 안내 문구 정도는 띄워주면 친절함 (선택사항)
             st.caption(f"ℹ️ 설정된 제목 줄 위치: {saved_row_idx + 1}번째 줄")
-
-            up_file = st.file_uploader("이카운트 주문 엑셀 업로드", key="run_ecount")
             
+            up_file = st.file_uploader("이카운트 주문 엑셀 업로드", key="run_ecount")
+
             if up_file:
-                # [변경점] 가져온 saved_row_idx를 바로 사용
+                # saved_row_idx를 사용하여 이카운트 데이터 로드
                 df = load_data(up_file, header_row_idx=saved_row_idx)
                 
-                # ... (이하 기존 로직 동일) ...
-                # print("df") ...
                 if df is not None:
                     if st.button("변환 실행"):
                         res = services.convert_to_rosen(df, rules)
@@ -84,7 +82,27 @@ with page_run:
                         for name, df_res in res.items():
                             with cols[idx % 3]:
                                 st.success(f"✅ {name} ({len(df_res)}건)")
-                                st.dataframe(df_res.head(3), use_container_width=True)
+                                
+                                # --- [추가] 중복 헤더 에러 방지 로직 ---
+                                # st.dataframe 출력을 위해 컬럼명을 고유하게 만듭니다.
+                                display_df = df_res.copy()
+                                new_cols = []
+                                seen = {}
+                                for col in display_df.columns:
+                                    base = col if str(col).strip() else "빈헤더"
+                                    if base in seen:
+                                        seen[base] += 1
+                                        new_cols.append(f"{base}_{seen[base]}")
+                                    else:
+                                        seen[base] = 0
+                                        new_cols.append(base)
+                                display_df.columns = new_cols
+                                # ---------------------------------------
+
+                                # 중복이 제거된 display_df로 출력 (88번 라인 대응)
+                                st.dataframe(display_df.head(3), use_container_width=True)
+                                
+                                # 다운로드는 원본 df_res를 사용하여 빈 헤더를 유지
                                 st.download_button(
                                     f"⬇️ {name}_로젠.xlsx",
                                     data=to_excel_bytes(df_res),
@@ -189,39 +207,48 @@ with page_setup:
                 st.write("##### 1:1 컬럼 연결")
                 current_map = st.session_state.mappings.get(C.MAP_ECOUNT_TO_ROSEN, {}).get("simple_map", {})
                 
-                new_simple_map = {}
-                
-                # 타겟(로젠) 헤더 리스트를 루프로 돌림
-                for t_col in tgt_headers:
-                    # 고정값 처리
+
+                # --- [설정] 2. 로젠 변환 매핑 화면 ---
+                new_simple_map_list = [] 
+
+                for i, t_col in enumerate(tgt_headers):
+                    # 1. 헤더가 빈 값(또는 Unnamed)인지 확인
+                    is_empty = not str(t_col).strip() or str(t_col).startswith("Unnamed:")
+
+                    # 2. 고정값 처리 (고정값은 보여줌)
                     if t_col in [C.ROSEN_DELIVERY_FEE_COL, C.ROSEN_FEE_TYPE_COL]:
                         st.text_input(
-                            f"{t_col} (고정값)", 
+                            f"{i+1}. {t_col} (고정값)", 
                             value=str(C.ROSEN_SHIPPING_COST) if t_col == C.ROSEN_DELIVERY_FEE_COL else C.ROSEN_COST_TYPE, 
-                            disabled=True
+                            disabled=True, 
+                            key=f"fixed_{i}"
                         )
+                        new_simple_map_list.append({"target": t_col, "source": "__FIXED_VALUE__"})
                         continue
-                        
-                    # 기존 매핑 값 가져오기
-                    prev_val = current_map.get(t_col, C.NOT_SELECTED)
-                    
-                    idx = 0
-                    # 선택 목록 리스트 만들기 (선택안함 + 소스 헤더들)
-                    options = [C.NOT_SELECTED] + src_headers
 
-                    if prev_val in options:
-                        idx = options.index(prev_val)
-                    
-                    # 셀렉트박스 생성
+                    # 3. 빈 헤더인 경우: UI에서는 생략하고 리스트에만 빈 상태로 추가
+                    if is_empty:
+                        # 사용자에게 보여주지 않지만, 결과물 순서를 위해 리스트에는 추가
+                        new_simple_map_list.append({"target": "", "source": C.NOT_SELECTED})
+                        continue
+
+                    # 4. 일반 헤더인 경우: 기존 매핑 값 찾기 및 UI 표시
+                    prev_val = C.NOT_SELECTED
+                    if isinstance(current_map, list) and i < len(current_map):
+                        prev_val = current_map[i].get("source", C.NOT_SELECTED)
+
+                    options = [C.NOT_SELECTED] + src_headers
+                    idx = options.index(prev_val) if prev_val in options else 0
+
                     val = st.selectbox(
-                        f"로젠 [{t_col}] <== 이카운트 [?]", 
-                        options, 
-                        index=idx, 
-                        key=f"rm_{t_col}"
+                        f"{i+1}. 로젠 [{t_col}] <== 이카운트 [?]",
+                        options,
+                        index=idx,
+                        key=f"rm_{i}_{t_col}" 
                     )
-                    
-                    # [수정] t_col은 이미 컬럼명(문자열)이므로 바로 키로 사용
-                    new_simple_map[t_col] = val 
+
+                    # 리스트에 저장
+                    new_simple_map_list.append({"target": t_col, "source": val})
                 
                 st.write("##### 파일 분리 기준")
                 
@@ -234,7 +261,7 @@ with page_setup:
                 split_col = st.selectbox("수집처(네이버/카카오 등) 구분 컬럼", split_options, index=split_idx)
 
                 if st.form_submit_button("매핑 저장"):
-                    full_rule = {"simple_map": new_simple_map, "split_col": split_col}
+                    full_rule = {"simple_map": new_simple_map_list, "split_col": split_col}
                     
                     # DB 저장 함수 호출 (import 확인 필요)
                     database.save_mapping(C.MAP_ECOUNT_TO_ROSEN, full_rule)
