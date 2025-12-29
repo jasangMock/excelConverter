@@ -72,7 +72,8 @@ def convert_to_rosen(df_data, mapping_rules):
                 # 예: "막걸리" -> "★[2개] 막걸리"
                 col_data.loc[mask] = "★[" + qtys.loc[mask].astype(int).astype(str) + "개] " + col_data.loc[mask]
             # ---------------------------------------------------------------
-        
+            if target_col == "박스수량":
+                col_data = pd.Series([1] * len(df_data))
         # (C) 매핑되지 않았거나 빈 헤더인 경우
         else:
             col_data = pd.Series([""] * len(df_data))

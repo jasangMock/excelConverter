@@ -77,6 +77,11 @@ with page_run:
             if up_file:
                 df = load_data(up_file, header_row_idx=saved_row_idx)
                 
+                print("df")
+                print(df)
+                print("df columns:", df.columns.tolist() if df is not None else "df is None")
+                print("")
+
                 if df is not None:
                     # 2. 변환 실행 버튼
                     if st.button("변환 실행"):
