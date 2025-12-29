@@ -70,7 +70,7 @@ def convert_to_rosen(df_data, mapping_rules):
                 
                 # 해당 행들에 대해서만 품목명 앞에 "★[N개]" 붙이기
                 # 예: "막걸리" -> "★[2개] 막걸리"
-                col_data.loc[mask] = "★[" + qtys.loc[mask].astype(int).astype(str) + "개] " + col_data.loc[mask]
+                col_data.loc[mask] =   col_data.loc[mask] + "★[" + qtys.loc[mask].astype(int).astype(str) + "개] "
             # ---------------------------------------------------------------
             if target_col == "박스수량":
                 col_data = pd.Series([1] * len(df_data))
@@ -129,12 +129,12 @@ def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
     
     # 설정값 매핑 (Dictionary로 관리하면 반복문 사용 가능)
     e_map = {k: cols_cfg.get(f'ecount_{k}', v) for k, v in {
-        'item': '쇼핑물상품명', 'qty': '수량', 'name': '수취인', 
+        'item': '쇼핑물상품명',  'name': '수취인', 
         'addr': '주소', 'contact': '수취인연락처1', 'msg': '배송요청사항'
     }.items()}
     
     i_map = {k: cols_cfg.get(f'invoice_{k}', v) for k, v in {
-        'item': '물품명', 'qty': '박스수량', 'name': '수하인_이름', 
+        'item': '물품명', 'name': '수하인_이름', 
         'addr': '수하인_주소', 'contact': '수하인_휴대폰', 'msg': '배송메세지'
     }.items()}
 
@@ -177,7 +177,7 @@ def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
             return addr
 
         # [2] 데이터 전처리
-        # 주소: 위에서 만든 함수로 표준화 후 앞 9글자만 사용 (경기도->경기 로 줄었으니 1글자 늘림)
+        # 주소: 위에서 만든 함수로 표준화 후 앞 6글자만 사용 (경기도->경기 로 줄었으니 1글자 늘림)
         clean_address = normalize_addr(str(row[m['addr']]))[:6]
         
         # 메세지: nan 제거
@@ -192,8 +192,8 @@ def convert_to_bulk_upload(df_ecount, df_invoice, mapping_rules):
             U.clean_text(str(row[m['name']])),       # 이름
             clean_address,                           # 표준화된 주소 (핵심!)
             U.clean_text(str(row[m['contact']]))[:7],# 전화번호
-            U.clean_text(str(row[m['item']])),       # 상품명
-            clean_quantity(row[m['qty']]),           # 수량
+            U.clean_text(str(row[m['item']]))[:5],       # 상품명
+         #   clean_quantity(row[m['qty']]),           # 수량
             clean_msg                                # 메세지
         ])
 
