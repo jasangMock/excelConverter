@@ -77,10 +77,10 @@ with page_run:
             if up_file:
                 df = load_data(up_file, header_row_idx=saved_row_idx)
                 
-                print("df")
-                print(df)
-                print("df columns:", df.columns.tolist() if df is not None else "df is None")
-                print("")
+                #print("df")
+                #print(df)
+                #print("df columns:", df.columns.tolist() if df is not None else "df is None")
+                #print("")
 
                 if df is not None:
                     # 2. 변환 실행 버튼
@@ -131,8 +131,8 @@ with page_run:
         st.info("ℹ️ 수취인+연락처+품목+메시지가 모두 일치하는 주문을 자동으로 연결합니다.")
         
         rules_bulk = st.session_state.mappings.get(C.MAP_BULK_ECOUNT)
-        print("Bulk Mapping Rules:", rules_bulk)
-        print("")
+        #print("Bulk Mapping Rules:", rules_bulk)
+        #print("")
         
         # 템플릿 정보 가져오기 (이카운트 & 로젠 내보내기)
         tmpl_ecount = st.session_state.templates.get("ecount", {})
@@ -209,9 +209,9 @@ with page_setup:
         tgt_headers = tgt_template.get("headers", [])
 
         # 디버깅용 출력 (리스트가 잘 나오는지 확인)
-        print("src_headers:", src_headers)
-        print("tgt_headers:", tgt_headers)
-        print("")
+        #print("src_headers:", src_headers)
+        #print("tgt_headers:", tgt_headers)
+        #print("")
 
         # 리스트가 비어있는지 확인
         if not src_headers or not tgt_headers:
