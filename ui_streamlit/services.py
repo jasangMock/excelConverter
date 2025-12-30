@@ -7,6 +7,55 @@ import utils as U
   # --- 유틸리티 및 파일 처리 함수 ---
 
 
+# services.py (또는 함수 정의 부분)
+
+def modify_ecount_file(df):
+    """(내부용) 이카운트 원본 데이터 가공 로직"""
+    df_mod = df.copy()
+    
+    # 1. 주문번호/묶음번호 깨끗하게 정리 (유틸 함수 사용)
+    #    -> 이제 복잡한 replace 코드를 매번 안 써도 됩니다!
+    target_cols = ['주문번호', '묶음주문번호']
+    for col in target_cols:
+        if col in df_mod.columns:
+            df_mod[col] = U.clean_numeric_series(df_mod[col])
+
+    # 2. 컬럼명 찾기 (유틸 함수 사용)
+    #    -> next(...) 보다 훨씬 직관적입니다.
+    item_col = U.find_first_existing_col(df_mod, ["쇼핑몰상품명", "품목명"])
+    qty_col = U.find_first_existing_col(df_mod, ["수량(소단위)", "수량"])
+
+    # 3. 비즈니스 로직 적용 (품목명 변경 & 수량 1 고정)
+    if item_col and qty_col:
+        qtys = pd.to_numeric(df_mod[qty_col], errors='coerce').fillna(1)
+        mask = qtys > 1
+        
+        # "이름" -> "이름 x 3"
+        df_mod.loc[mask, item_col] = (
+            df_mod.loc[mask, item_col].astype(str) + " x " + qtys[mask].astype(int).astype(str)
+        )
+        # 수량 -> 1
+        df_mod.loc[mask, qty_col] = 1
+        
+    return df_mod
+
+def process_all_conversions(df, mapping_rules):
+    """
+    [메인 처리 함수] 
+    입력: 원본 데이터프레임
+    출력: { 'ecount': 수정된_이카운트DF, 'rosen': { 'naver': DF, ... } }
+    """
+    # 1. 이카운트 파일 수정 작업
+    ecount_mod = modify_ecount_file(df)
+    
+    # 2. 로젠 택배 파일 변환 작업 (기존 함수 활용)
+    rosen_files = convert_to_rosen(df, mapping_rules)
+    
+    # 3. 결과를 구조화된 딕셔너리로 반환 (섞지 않고 분리)
+    return {
+        "ecount": ecount_mod,
+        "rosen": rosen_files
+    }
 
 # --- 핵심 비즈니스 로직 ---
 def convert_to_rosen(df_data, mapping_rules):

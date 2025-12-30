@@ -237,3 +237,27 @@ def dataframe_to_rules(df):
 def reset_conversion():
     if "conversion_result" in st.session_state:
         del st.session_state.conversion_result
+
+
+def find_first_existing_col(df, candidates):
+    """
+    데이터프레임에서 후보군(candidates) 중 가장 먼저 발견되는 컬럼명을 반환
+    예: find_first_existing_col(df, ["수량(소단위)", "수량"]) -> "수량(소단위)"
+    """
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+def clean_numeric_series(series):
+    """
+    숫자형 텍스트 컬럼을 깨끗하게 정리 (주문번호, 전화번호 등)
+    1. 무조건 문자로 변환
+    2. 1234.0 -> 1234 (.0 제거)
+    3. nan, None -> 빈 문자열("")
+    """
+    return (
+        series.astype(str)
+        .str.replace(r'\.0$', '', regex=True)
+        .replace(['nan', 'None', 'NaN'], '')
+    )

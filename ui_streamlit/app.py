@@ -84,20 +84,42 @@ with page_run:
 
                 if df is not None:
                     # 2. 변환 실행 버튼
-                    if st.button("변환 실행"):
-                        # 변환 로직 실행 및 세션 저장
-                        st.session_state.conversion_result = services.convert_to_rosen(df, rules)
-                        st.success("새로운 변환이 완료되었습니다.")
+                    if st.button("변환 실행", type="primary"):
+                        with st.spinner("데이터 변환 중입니다..."):
+                                # 서비스 함수 딱 하나만 호출하면 끝!
+                            results = services.process_all_conversions(df, rules)
+                            st.session_state.conversion_result = results
+                            st.success("모든 변환이 완료되었습니다!")
 
                     # 3. 결과 표시 (세션에 있을 때만)
                     if "conversion_result" in st.session_state:
-                        res = st.session_state.conversion_result
-                        
+                        results = st.session_state.conversion_result
+                        # (1) 수정된 이카운트 파일 섹션 (독립적으로 표시)
+                        st.markdown("### 📂 1. 수정된 이카운트 원본 (합포장 반영)")
+                        st.caption("수량이 1보다 큰 주문은 `상품명 x 수량`으로 변경되고, 수량은 1로 통일되었습니다.")
+
+                        df_ecount = results['ecount']
+                        st.dataframe(df_ecount.head(3), use_container_width=True)
+
+                        st.download_button(
+                            label="⬇️ 수정된_이카운트_다운로드.xlsx",
+                            data=to_excel_bytes(df_ecount),
+                            file_name="modified_ecount_source.xlsx",
+                            key="btn_ecount_down",
+                            use_container_width=True
+                        )
+
+                        st.divider() # 깔끔한 구분선
+
+                        st.markdown("### 🚛 2. 로젠 택배 발송용 파일")
+
+                        rosen_dict = results['rosen']
+            
                         # (중요) 만약 파일 내용과 세션 결과가 맞지 않는 상황을 방지하고 싶다면
                         # 여기에 추가적인 체크 로직을 넣을 수도 있습니다.
                         
                         cols = st.columns(3)
-                        for idx, (name, df_res) in enumerate(res.items()):
+                        for idx, (name, df_res) in enumerate(rosen_dict.items()):
                             with cols[idx % 3]:
                                 st.success(f"✅ {name} ({len(df_res)}건)")
                                 
