@@ -1,0 +1,93 @@
+테이블 구조
+
+
+mappins(구)
+
+= {
+    ecount_to_rosen : {
+    {
+  "simple_map": [
+    {
+      "target": "수하인명",
+      "source": "수취인"
+    },
+    {
+      "target": "",
+      "source": "(선택 안 함)"
+    },
+    {
+      "target": "수하인주소",
+      "source": "주소"
+    },
+    {
+      "target": "수하인전화번호",
+      "source": "수취인연락처1"
+    },
+    {
+      "target": "수하인핸드폰번호",
+      "source": "수취인연락처1"
+    },
+    {
+      "target": "박스수량",
+      "source": "수량"
+    },
+    {
+      "target": "택배운임",
+      "source": "__FIXED_VALUE__"
+    },
+    {
+      "target": "운임구분",
+      "source": "__FIXED_VALUE__"
+    },
+    {
+      "target": "품목명",
+      "source": "쇼핑몰상품명"
+    },
+    {
+      "target": "",
+      "source": "(선택 안 함)"
+    },
+    {
+      "target": "배송메세지",
+      "source": "배송요청사항"
+    }
+  ],
+  "split_col": "수집처"
+}
+},
+
+식별자..
+ecount_item은 쇼핑몰상품명,
+invoice_item은 물품명
+이라는 값이 같고
+
+ecount_quantity의 수량과 invoice_quantity의 값이 같고..
+이렇게 서로 대응되는 값이 일치하는 값을 찾아 하나의 주문을 식별한다. 
+
+bulk_ecount: {
+{
+  "match_columns": {
+    "ecount_item": "쇼핑몰상품명",
+    "invoice_item": "물품명",
+    "ecount_quantity": "수량",
+    "invoice_quantity": "박스수량",
+    "ecount_name": "수취인",
+    "invoice_name": "수하인_이름",
+    "ecount_address": "주소",
+    "invoice_address": "수하인_주소",
+    "ecount_contact_mobile": "수취인연락처1",
+    "invoice_contact_mobile": "수하인_휴대폰",
+    "ecount_msg": "배송요청사항",
+    "invoice_msg": "배송메시지"
+  },
+  "transform": {
+    "source_col": "수집처",
+    "rules": {
+      "스마트스토어2.0": "00001",
+      "카카오톡선물하기": "00003",
+      "쿠팡": "00004"
+    }
+  }
+}
+}
+}
