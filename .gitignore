@@ -1,0 +1,5 @@
+excelConverter/.venv/
+
+__pycache__/
+*.pyc
+*.db
